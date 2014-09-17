@@ -19,31 +19,36 @@ var testGroupId2 = uuid.New()
 
 func sendAndConsumeRoutine(t *testing.T, quit chan int) {
 	fmt.Println("Starting sample broker testing")
-	kafkaProducer := &KafkaProducer{Topic: testTopic, BrokerList: brokers}
+	kafkaProducer := NewKafkaProducer(testTopic, brokers)
+//	kafkaProducer := &KafkaProducer{Topic: testTopic, BrokerList: brokers}
 	kafkaProducer.Send(testMessage)
 
-	kafkaConsumer := &KafkaConsumer{Topic: testTopic, GroupId: testGroupId, BrokerList: brokers}
+	kafkaConsumer := NewKafkaConsumer(testTopic, testGroupId, brokers)
+//	kafkaConsumer := &KafkaConsumer{Topic: testTopic, GroupId: testGroupId, BrokerList: brokers}
 	fmt.Println("Trying to consume the message")
 	go kafkaConsumer.Read(readFunc(1, t, quit))
-	time.Sleep(5 * time.Second)
-	t.Error("Failed to produce and consume a value within 5 seconds")
+	time.Sleep(10 * time.Second)
+	t.Error("Failed to produce and consume a value within 10 seconds")
 	quit <- 1
 }
 
 func sendAndConsumeGroupsRoutine(t *testing.T, quit chan int) {
 	fmt.Println("Starting sample broker testing")
-	kafkaProducer := &KafkaProducer{Topic: testTopic2, BrokerList: brokers}
+	kafkaProducer := NewKafkaProducer(testTopic2, brokers)
+//	kafkaProducer := &KafkaProducer{Topic: testTopic2, BrokerList: brokers}
 	kafkaProducer.Send(testMessage)
 
-	consumer1 := &KafkaConsumer{Topic: testTopic2, GroupId: testGroupId, BrokerList: brokers}
+	consumer1 := NewKafkaConsumer(testTopic2, testGroupId, brokers)
+//	consumer1 := &KafkaConsumer{Topic: testTopic2, GroupId: testGroupId, BrokerList: brokers}
 	fmt.Println("Trying to consume the message with Consumer 1")
 	go consumer1.Read(readFunc(1, t, quit))
 
-	consumer2 := &KafkaConsumer{Topic: testTopic2, GroupId: testGroupId2, BrokerList: brokers}
+	consumer2 := NewKafkaConsumer(testTopic2, testGroupId2, brokers)
+//	consumer2 := &KafkaConsumer{Topic: testTopic2, GroupId: testGroupId2, BrokerList: brokers}
 	fmt.Println("Trying to consume the message with Consumer 2")
 	go consumer2.Read(readFunc(2, t, quit))
-	time.Sleep(5 * time.Second)
-	t.Error("Failed to produce and consume a value within 5 seconds")
+	time.Sleep(10 * time.Second)
+	t.Error("Failed to produce and consume a value within 10 seconds")
 	quit <- 1
 	quit <- 1
 }
