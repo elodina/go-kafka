@@ -1,23 +1,23 @@
 package producer
 
-import (. "github.com/Shopify/sarama"
+import ("github.com/Shopify/sarama"
 	"code.google.com/p/go-uuid/uuid"
 )
 
 type KafkaProducer struct {
 	Topic      string
 	BrokerList []string
-	client *Client
-	producer *Producer
+	client *sarama.Client
+	producer *sarama.Producer
 }
 
 func NewKafkaProducer(topic string, brokerList []string) *KafkaProducer {
-	client, err := NewClient(uuid.New(), brokerList, NewClientConfig())
+	client, err := sarama.NewClient(uuid.New(), brokerList, sarama.NewClientConfig())
 	if err != nil {
 		panic(err)
 	}
 
-	producer, err := NewProducer(client, nil)
+	producer, err := sarama.NewProducer(client, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -26,7 +26,7 @@ func NewKafkaProducer(topic string, brokerList []string) *KafkaProducer {
 }
 
 func (kafkaProducer *KafkaProducer) Send(message string) error {
-	return kafkaProducer.producer.SendMessage(kafkaProducer.Topic, nil, StringEncoder(message))
+	return kafkaProducer.producer.SendMessage(kafkaProducer.Topic, nil, sarama.StringEncoder(message))
 }
 
 func (kafkaProducer *KafkaProducer) Close() {

@@ -10,6 +10,7 @@ import (
 )
 
 var brokers = []string{"192.168.86.10:9092"}
+var timeout time.Duration = 10
 
 var testMessage = uuid.New()
 var testTopic = uuid.New()
@@ -20,35 +21,32 @@ var testGroupId2 = uuid.New()
 func sendAndConsumeRoutine(t *testing.T, quit chan int) {
 	fmt.Println("Starting sample broker testing")
 	kafkaProducer := NewKafkaProducer(testTopic, brokers)
-//	kafkaProducer := &KafkaProducer{Topic: testTopic, BrokerList: brokers}
+	fmt.Printf("Sending message %s to topic %s\n", testMessage, testTopic)
 	kafkaProducer.Send(testMessage)
 
 	kafkaConsumer := NewKafkaConsumer(testTopic, testGroupId, brokers)
-//	kafkaConsumer := &KafkaConsumer{Topic: testTopic, GroupId: testGroupId, BrokerList: brokers}
-	fmt.Println("Trying to consume the message")
+	fmt.Printf("Trying to consume the message with group %s\n", testGroupId)
 	go kafkaConsumer.Read(readFunc(1, t, quit))
-	time.Sleep(10 * time.Second)
-	t.Error("Failed to produce and consume a value within 10 seconds")
+	time.Sleep(timeout * time.Second)
+	t.Errorf("Failed to produce and consume a value within %d seconds", timeout)
 	quit <- 1
 }
 
 func sendAndConsumeGroupsRoutine(t *testing.T, quit chan int) {
 	fmt.Println("Starting sample broker testing")
 	kafkaProducer := NewKafkaProducer(testTopic2, brokers)
-//	kafkaProducer := &KafkaProducer{Topic: testTopic2, BrokerList: brokers}
+	fmt.Printf("Sending message %s to topic %s\n", testMessage, testTopic2)
 	kafkaProducer.Send(testMessage)
 
 	consumer1 := NewKafkaConsumer(testTopic2, testGroupId, brokers)
-//	consumer1 := &KafkaConsumer{Topic: testTopic2, GroupId: testGroupId, BrokerList: brokers}
-	fmt.Println("Trying to consume the message with Consumer 1")
+	fmt.Printf("Trying to consume the message with Consumer 1 and group %s\n", testGroupId)
 	go consumer1.Read(readFunc(1, t, quit))
 
 	consumer2 := NewKafkaConsumer(testTopic2, testGroupId2, brokers)
-//	consumer2 := &KafkaConsumer{Topic: testTopic2, GroupId: testGroupId2, BrokerList: brokers}
-	fmt.Println("Trying to consume the message with Consumer 2")
+	fmt.Printf("Trying to consume the message with Consumer 2 and group %s\n", testGroupId2)
 	go consumer2.Read(readFunc(2, t, quit))
-	time.Sleep(10 * time.Second)
-	t.Error("Failed to produce and consume a value within 10 seconds")
+	time.Sleep(timeout * time.Second)
+	t.Errorf("Failed to produce and consume a value within %d seconds", timeout)
 	quit <- 1
 	quit <- 1
 }
@@ -59,7 +57,7 @@ func readFunc(consumerId int, t *testing.T, quit chan int) func([]byte) {
 		if (message != testMessage) {
 			t.Errorf("Produced value %s and consumed value %s do not match.", testMessage, message)
 		} else {
-			fmt.Printf("Consumer %d successfully consumed a message\n", consumerId)
+			fmt.Printf("Consumer %d successfully consumed a message %s\n", consumerId, message)
 		}
 		quit <- 1
 	}
