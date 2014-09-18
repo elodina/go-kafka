@@ -10,9 +10,9 @@ Use Vagrant to get up and running.
 
 In the main kafka folder  
 
-1) vagrant up
-2) vagrant ssh brokerOne
-3) cd /vagrant
+1) vagrant up   
+2) vagrant ssh brokerOne   
+3) cd /vagrant   
 4) sudo ./test.sh
 
 once this is done 

@@ -9,40 +9,48 @@ type KafkaConsumer struct {
 	GroupId           string
 	BrokerList        []string
 	quit              chan int
+	client            *sarama.Client
+	consumer        *sarama.Consumer
 }
 
-func NewKafkaConsumer(topic string, groupId string, brokerList []string) *KafkaConsumer {
+func NewKafkaConsumer(topic string, groupId string, brokerList []string, config *sarama.ConsumerConfig) *KafkaConsumer {
 	kafkaConsumer := &KafkaConsumer{Topic: topic, GroupId: groupId, BrokerList: brokerList}
 	kafkaConsumer.quit = make(chan int)
-	return kafkaConsumer
-}
-
-func (kafkaConsumer KafkaConsumer) Read(writeFunc func(bytes []byte)) {
 	client, err := sarama.NewClient(uuid.New(), kafkaConsumer.BrokerList, nil)
 	if err != nil {
 		panic(err)
 	}
-	defer client.Close()
 
-	consumer, err := sarama.NewConsumer(client, kafkaConsumer.Topic, 0, kafkaConsumer.GroupId, sarama.NewConsumerConfig())
+	if config == nil {
+		config = sarama.NewConsumerConfig()
+	}
+	consumer, err := sarama.NewConsumer(client, kafkaConsumer.Topic, 0, kafkaConsumer.GroupId, config)
 	if err != nil {
 		panic(err)
 	}
-	defer consumer.Close()
+	kafkaConsumer.client = client
+	kafkaConsumer.consumer = consumer
 
+	return kafkaConsumer
+}
+
+func (kafkaConsumer *KafkaConsumer) Read(writeFunc func(bytes []byte)) {
+readLoop:
 	for {
 		select {
-		case event := <-consumer.Events():
+		case event := <-kafkaConsumer.consumer.Events():
 			if event.Err != nil {
 				panic(event.Err)
 			}
 			writeFunc(event.Value)
 		case <-kafkaConsumer.quit:
-			return
+			break readLoop
 		}
 	}
 }
 
 func (kafkaConsumer KafkaConsumer) Close() {
 	kafkaConsumer.quit <- 1
+	kafkaConsumer.client.Close()
+	kafkaConsumer.consumer.Close()
 }
