@@ -1,9 +1,6 @@
 package consumer
 
-import (
-	"github.com/wvanbergen/kafka/consumergroup"
-	"fmt"
-)
+import "github.com/wvanbergen/kafka/consumergroup"
 
 type KafkaConsumerGroup struct {
 	Topic            string
@@ -15,7 +12,7 @@ type KafkaConsumerGroup struct {
 func NewKafkaConsumerGroup(topic string, groupId string, zookeeper []string, config *consumergroup.ConsumerGroupConfig) *KafkaConsumerGroup {
 	cons, consumerErr := consumergroup.JoinConsumerGroup(groupId, topic, zookeeper, config)
 	if consumerErr != nil {
-		fmt.Printf("Consumer Group error: %s\n", consumerErr)
+		panic(consumerErr)
 	}
 
 	return &KafkaConsumerGroup{ Topic: topic, GroupId: groupId, ZookeeperConnect: zookeeper, consumer: cons}

@@ -51,6 +51,6 @@ readLoop:
 
 func (kafkaConsumer KafkaConsumer) Close() {
 	kafkaConsumer.quit <- 1
-	kafkaConsumer.client.Close()
 	kafkaConsumer.consumer.Close()
+	kafkaConsumer.client.Close()
 }

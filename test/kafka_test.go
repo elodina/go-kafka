@@ -5,8 +5,8 @@ import (
 	"code.google.com/p/go-uuid/uuid"
 	"fmt"
 	"time"
-	. "github.com/stealthly/go-kafka/producer"
-	. "github.com/stealthly/go-kafka/consumer"
+	"github.com/stealthly/go-kafka/producer"
+	"github.com/stealthly/go-kafka/consumer"
 )
 
 var brokers = []string{"192.168.86.10:9092"}
@@ -21,11 +21,11 @@ var testGroupId2 = uuid.New()
 
 func sendAndConsumeRoutine(t *testing.T, quit chan int) {
 	fmt.Println("Starting sample broker testing")
-	kafkaProducer := NewKafkaProducer(testTopic, brokers)
+	kafkaProducer := producer.NewKafkaProducer(testTopic, brokers)
 	fmt.Printf("Sending message %s to topic %s\n", testMessage, testTopic)
 	kafkaProducer.Send(testMessage)
 
-	kafkaConsumer := NewKafkaConsumer(testTopic, testGroupId, brokers, nil)
+	kafkaConsumer := consumer.NewKafkaConsumer(testTopic, testGroupId, brokers, nil)
 	fmt.Printf("Trying to consume the message with group %s\n", testGroupId)
 	go kafkaConsumer.Read(readFunc(1, t, quit))
 	time.Sleep(timeout * time.Second)
@@ -35,15 +35,15 @@ func sendAndConsumeRoutine(t *testing.T, quit chan int) {
 
 func sendAndConsumeGroupsRoutine(t *testing.T, quit chan int) {
 	fmt.Println("Starting sample broker testing")
-	kafkaProducer := NewKafkaProducer(testTopic2, brokers)
+	kafkaProducer := producer.NewKafkaProducer(testTopic2, brokers)
 	fmt.Printf("Sending message %s to topic %s\n", testMessage, testTopic2)
 	kafkaProducer.Send(testMessage)
 
-	consumer1 := NewKafkaConsumer(testTopic2, testGroupId, brokers, nil)
+	consumer1 := consumer.NewKafkaConsumer(testTopic2, testGroupId, brokers, nil)
 	fmt.Printf("Trying to consume the message with Consumer 1 and group %s\n", testGroupId)
 	go consumer1.Read(readFunc(1, t, quit))
 
-	consumer2 := NewKafkaConsumer(testTopic2, testGroupId2, brokers, nil)
+	consumer2 := consumer.NewKafkaConsumer(testTopic2, testGroupId2, brokers, nil)
 	fmt.Printf("Trying to consume the message with Consumer 2 and group %s\n", testGroupId2)
 	go consumer2.Read(readFunc(2, t, quit))
 	time.Sleep(timeout * time.Second)
@@ -55,16 +55,15 @@ func sendAndConsumeGroupsRoutine(t *testing.T, quit chan int) {
 func consumerGroupsRoutine(t *testing.T, quit chan int) {
 	topic := uuid.New()
 	consumerGroup1 := uuid.New()
-//		consumerGroup2 := uuid.New()
 
 	//create a new producer and send 2 messages to a random topic
-	kafkaProducer := NewKafkaProducer(topic, brokers)
+	kafkaProducer := producer.NewKafkaProducer(topic, brokers)
 	fmt.Printf("Sending message 1 and 2 to topic %s\n", topic)
 	kafkaProducer.Send("1")
 	kafkaProducer.Send("2")
 
 	//create a new consumer and try to consume the 2 produced messages
-	consumer1 := NewKafkaConsumerGroup(topic, consumerGroup1, zookeeper, nil)
+	consumer1 := consumer.NewKafkaConsumerGroup(topic, consumerGroup1, zookeeper, nil)
 	fmt.Printf("Trying to consume messages with Consumer 1 and group %s\n", consumerGroup1)
 	messageCount1 := 0
 	waiter1 := make(chan int)
@@ -86,7 +85,7 @@ func consumerGroupsRoutine(t *testing.T, quit chan int) {
 	}
 
 	//create one more consumer with the same consumer group and make sure messages are not consumed again
-	consumer2 := NewKafkaConsumerGroup(topic, consumerGroup1, zookeeper, nil)
+	consumer2 := consumer.NewKafkaConsumerGroup(topic, consumerGroup1, zookeeper, nil)
 	fmt.Printf("Trying to consume messages with Consumer 2 and group %s\n", consumerGroup1)
 	waiter2 := make(chan int)
 	go consumer2.Read(func(bytes []byte) {
@@ -111,22 +110,19 @@ func consumerGroupsRoutine(t *testing.T, quit chan int) {
 	}
 
 	fmt.Println("consume these messages using 2 consumers with the same consumer groups")
-	consumer3 := NewKafkaConsumerGroup(topic, consumerGroup1, zookeeper, nil)
-	consumer4 := NewKafkaConsumerGroup(topic, consumerGroup1, zookeeper, nil)
+	consumer3 := consumer.NewKafkaConsumerGroup(topic, consumerGroup1, zookeeper, nil)
+	consumer4 := consumer.NewKafkaConsumerGroup(topic, consumerGroup1, zookeeper, nil)
 	//total number of consumed messages should be 50 i.e. no duplicate or missing messages within one group
 	messageCount2 := 0
-//	waiter3 := make(chan int)
 	writeFunc := func (consumerId int) func ([]byte) {
 		return func (bytes []byte) {
 			fmt.Printf("Consumer %d consumed message %s\n", consumerId, string(bytes))
 			messageCount2++
-//			time.Sleep(50 * time.Millisecond)
 		}
 	}
 	go consumer3.Read(writeFunc(1))
 	go consumer4.Read(writeFunc(2))
 
-//	fmt.Println("wait a bit and check the number of consumed messages")
 	<-time.After(timeout / 2 * time.Second)
 	if (messageCount2 != numMessages) {
 		t.Errorf("Invalid number of messages: expected %d, actual %d", numMessages, messageCount2)
