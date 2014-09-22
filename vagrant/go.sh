@@ -41,4 +41,6 @@ export GOPATH=/usr/local/go/home/
 
 go get github.com/stealthly/go-kafka
 
+/opt/apache/kafka/bin/kafka-topics.sh --create --zookeeper 192.168.86.5:2181 --replication-factor 1 --partitions 2 --topic partitions_test
+
 exitscript

@@ -45,6 +45,6 @@ func (kafkaProducer *KafkaProducer) Send(message string) error {
 // Close indicates that no more messages will be produced with this producer and closes all underlying connections. It is required to call this function before
 // a producer object passes out of scope, as it will otherwise leak memory.
 func (kafkaProducer *KafkaProducer) Close() {
-	kafkaProducer.client.Close()
 	kafkaProducer.producer.Close()
+	kafkaProducer.client.Close()
 }

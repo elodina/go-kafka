@@ -11,6 +11,7 @@ import (
 
 var brokers = []string{"192.168.86.10:9092"}
 var zookeeper = []string{"192.168.86.5:2181"}
+var multiplePartitionsTopic = "partitions_test" //taken from vagrant/go.sh
 var timeout time.Duration = 10
 
 var testMessage = uuid.New()
@@ -52,7 +53,7 @@ func sendAndConsumeGroupsRoutine(t *testing.T, quit chan int) {
 	quit <- 1
 }
 
-func consumerGroupsRoutine(t *testing.T, quit chan int) {
+func consumerGroupsSinglePartitionRoutine(t *testing.T, quit chan int) {
 	topic := uuid.New()
 	consumerGroup1 := uuid.New()
 
@@ -105,23 +106,18 @@ func consumerGroupsRoutine(t *testing.T, quit chan int) {
 
 	fmt.Println("produce 50 more messages")
 	numMessages := 50
-	for i := 3; i < 3 + numMessages; i++ {
+	for i := 3; i < 3+numMessages; i++ {
 		kafkaProducer.Send(uuid.New())
 	}
 
-	fmt.Println("consume these messages using 2 consumers with the same consumer groups")
+	fmt.Println("consume these messages with a consumer group")
 	consumer3 := consumer.NewKafkaConsumerGroup(topic, consumerGroup1, zookeeper, nil)
-	consumer4 := consumer.NewKafkaConsumerGroup(topic, consumerGroup1, zookeeper, nil)
 	//total number of consumed messages should be 50 i.e. no duplicate or missing messages within one group
 	messageCount2 := 0
-	writeFunc := func (consumerId int) func ([]byte) {
-		return func (bytes []byte) {
-			fmt.Printf("Consumer %d consumed message %s\n", consumerId, string(bytes))
-			messageCount2++
-		}
-	}
-	go consumer3.Read(writeFunc(1))
-	go consumer4.Read(writeFunc(2))
+	go consumer3.Read(func(bytes []byte) {
+		fmt.Printf("Consumer 1 consumed message %s\n", string(bytes))
+		messageCount2++
+	})
 
 	<-time.After(timeout / 2 * time.Second)
 	if (messageCount2 != numMessages) {
@@ -133,7 +129,39 @@ func consumerGroupsRoutine(t *testing.T, quit chan int) {
 	//shutdown gracefully
 	kafkaProducer.Close()
 	consumer3.Close()
-	consumer4.Close()
+	quit <- 1
+}
+
+func consumerGroupsMultiplePartitionsRoutine(t *testing.T, quit chan int) {
+	kafkaProducer := producer.NewKafkaProducer(multiplePartitionsTopic, brokers, nil)
+	totalMessages := 100
+	fmt.Printf("Sending %d messages to topic %s\n", totalMessages, multiplePartitionsTopic)
+	go func() {
+		for i := 0; i < totalMessages; i++ {
+			kafkaProducer.Send(fmt.Sprintf("partitioned %d", i))
+		}
+	}()
+
+	fmt.Println("consume these messages with a consumer group")
+	consumer1 := consumer.NewKafkaConsumerGroup(multiplePartitionsTopic, "group1", zookeeper, nil)
+
+	messageCount := 0
+
+	go consumer1.Read(func(bytes []byte) {
+		fmt.Printf("Consumer group consumed message %s\n", string(bytes))
+		messageCount++
+	})
+
+	<-time.After(timeout / 2 * time.Second)
+	if (messageCount != totalMessages) {
+		t.Errorf("Invalid number of messages: expected %d, actual %d", totalMessages, messageCount)
+	} else {
+		fmt.Printf("Consumed %d messages\n", messageCount)
+	}
+
+	//shutdown gracefully
+	kafkaProducer.Close()
+	consumer1.Close()
 	quit <- 1
 }
 
@@ -164,9 +192,16 @@ func TestSendAndConsumeGroups(t *testing.T) {
 	<-quit
 }
 
-func TestConsumerGroups(t * testing.T) {
+func TestConsumerGroupsSinglePartition(t *testing.T) {
 	quit := make(chan int)
 
-	go consumerGroupsRoutine(t, quit)
+	go consumerGroupsSinglePartitionRoutine(t, quit)
+	<-quit
+}
+
+func TestConsumerGroupsMultiplePartitions(t *testing.T) {
+	quit := make(chan int)
+
+	go consumerGroupsMultiplePartitionsRoutine(t, quit)
 	<-quit
 }
