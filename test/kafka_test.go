@@ -21,7 +21,7 @@ var testGroupId2 = uuid.New()
 
 func sendAndConsumeRoutine(t *testing.T, quit chan int) {
 	fmt.Println("Starting sample broker testing")
-	kafkaProducer := producer.NewKafkaProducer(testTopic, brokers)
+	kafkaProducer := producer.NewKafkaProducer(testTopic, brokers, nil)
 	fmt.Printf("Sending message %s to topic %s\n", testMessage, testTopic)
 	kafkaProducer.Send(testMessage)
 
@@ -35,7 +35,7 @@ func sendAndConsumeRoutine(t *testing.T, quit chan int) {
 
 func sendAndConsumeGroupsRoutine(t *testing.T, quit chan int) {
 	fmt.Println("Starting sample broker testing")
-	kafkaProducer := producer.NewKafkaProducer(testTopic2, brokers)
+	kafkaProducer := producer.NewKafkaProducer(testTopic2, brokers, nil)
 	fmt.Printf("Sending message %s to topic %s\n", testMessage, testTopic2)
 	kafkaProducer.Send(testMessage)
 
@@ -57,7 +57,7 @@ func consumerGroupsRoutine(t *testing.T, quit chan int) {
 	consumerGroup1 := uuid.New()
 
 	//create a new producer and send 2 messages to a random topic
-	kafkaProducer := producer.NewKafkaProducer(topic, brokers)
+	kafkaProducer := producer.NewKafkaProducer(topic, brokers, nil)
 	fmt.Printf("Sending message 1 and 2 to topic %s\n", topic)
 	kafkaProducer.Send("1")
 	kafkaProducer.Send("2")

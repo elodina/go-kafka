@@ -7,7 +7,7 @@ import ("github.com/stealthly/go-kafka/producer"
 )
 
 func main() {
-	var kafkaProducer = producer.NewKafkaProducer("test_topic1", []string{"192.168.86.10:9092"})
+	var kafkaProducer = producer.NewKafkaProducer("test_topic1", []string{"192.168.86.10:9092"}, nil)
 	kafkaProducer.Send("a message!")
 	kafkaProducer.Close()
 
