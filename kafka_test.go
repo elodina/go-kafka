@@ -14,7 +14,6 @@ var zookeeper = []string{"go-zookeeper:2181"}
 var singlePartitionsTopic = "single_partition"
 var multiplePartitionsTopic = "partitions_test"
 
-//taken from vagrant/go.sh
 var timeout time.Duration = 10
 
 var testMessage = uuid.New()
@@ -31,6 +30,7 @@ func sendAndConsumeRoutine(t *testing.T, quit chan int) {
 
 	kafkaConsumer := consumer.NewKafkaConsumer(testTopic, testGroupId, brokers, nil)
 	fmt.Printf("Trying to consume the message with group %s\n", testGroupId)
+	messageConsumed := false
 	go kafkaConsumer.Read(func(bytes []byte) {
 		message := string(bytes)
 		if (message != testMessage) {
@@ -38,10 +38,13 @@ func sendAndConsumeRoutine(t *testing.T, quit chan int) {
 		} else {
 			fmt.Printf("Consumer %d successfully consumed a message %s\n", 1, message)
 		}
+		messageConsumed = true
 		quit <- 1
 	})
 	time.Sleep(timeout * time.Second)
-	t.Errorf("Failed to produce and consume a value within %d seconds", timeout)
+	if !messageConsumed {
+		t.Errorf("Failed to produce and consume a value within %d seconds", timeout)
+	}
 	quit <- 1
 }
 
