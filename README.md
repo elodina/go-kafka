@@ -1,6 +1,8 @@
 go-kafka
 ========
 
+[![Build Status](https://travis-ci.org/stealthly/go-kafka.svg?branch=master)](https://travis-ci.org/stealthly/go-kafka)
+
 Quick up and running using Go for Apache Kafka
 
 Use Vagrant to get up and running.

@@ -11,6 +11,7 @@ import (
 
 var brokers = []string{"go-broker:9092"}
 var zookeeper = []string{"go-zookeeper:2181"}
+var singlePartitionsTopic = "single_partition"
 var multiplePartitionsTopic = "partitions_test"
 
 //taken from vagrant/go.sh
@@ -80,17 +81,16 @@ func sendAndConsumeGroupsRoutine(t *testing.T, quit chan int) {
 }
 
 func consumerGroupsSinglePartitionRoutine(t *testing.T, quit chan int) {
-	topic := uuid.New()
 	consumerGroup1 := uuid.New()
 
 	//create a new producer and send 2 messages to a random topic
-	kafkaProducer := producer.NewKafkaProducer(topic, brokers, nil)
-	fmt.Printf("Sending message 1 and 2 to topic %s\n", topic)
+	kafkaProducer := producer.NewKafkaProducer(singlePartitionsTopic, brokers, nil)
+	fmt.Printf("Sending message 1 and 2 to topic %s\n", singlePartitionsTopic)
 	kafkaProducer.Send("1")
 	kafkaProducer.Send("2")
 
 	//create a new consumer and try to consume the 2 produced messages
-	consumer1 := consumer.NewKafkaConsumerGroup(topic, consumerGroup1, zookeeper, nil)
+	consumer1 := consumer.NewKafkaConsumerGroup(singlePartitionsTopic, consumerGroup1, zookeeper, nil)
 	fmt.Printf("Trying to consume messages with Consumer 1 and group %s\n", consumerGroup1)
 	messageCount1 := 0
 	waiter1 := make(chan int)
@@ -112,7 +112,7 @@ func consumerGroupsSinglePartitionRoutine(t *testing.T, quit chan int) {
 	}
 
 	//create one more consumer with the same consumer group and make sure messages are not consumed again
-	consumer2 := consumer.NewKafkaConsumerGroup(topic, consumerGroup1, zookeeper, nil)
+	consumer2 := consumer.NewKafkaConsumerGroup(singlePartitionsTopic, consumerGroup1, zookeeper, nil)
 	fmt.Printf("Trying to consume messages with Consumer 2 and group %s\n", consumerGroup1)
 	waiter2 := make(chan int)
 	go consumer2.Read(func(bytes []byte) {
@@ -137,7 +137,7 @@ func consumerGroupsSinglePartitionRoutine(t *testing.T, quit chan int) {
 	}
 
 	fmt.Println("consume these messages with a consumer group")
-	consumer3 := consumer.NewKafkaConsumerGroup(topic, consumerGroup1, zookeeper, nil)
+	consumer3 := consumer.NewKafkaConsumerGroup(singlePartitionsTopic, consumerGroup1, zookeeper, nil)
 	//total number of consumed messages should be 50 i.e. no duplicate or missing messages within one group
 	messageCount2 := 0
 	go consumer3.Read(func(bytes []byte) {

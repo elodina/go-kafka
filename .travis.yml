@@ -7,10 +7,17 @@ go:
 before_install:
 - echo "127.0.0.1 go-broker" | sudo tee -a /etc/hosts
 - echo "127.0.0.1 go-zookeeper" | sudo tee -a /etc/hosts
-- wget http://apache.mirror.nexicom.net/kafka/0.8.1.1/kafka_2.10-0.8.1.1.tgz -O kafka.tgz
+- sudo apt-get -y update
+- sudo apt-get install -y software-properties-common python-software-properties
+- sudo add-apt-repository -y ppa:webupd8team/java
+- sudo apt-get -y update
+- sudo /bin/echo debconf shared/accepted-oracle-license-v1-1 select true | /usr/bin/debconf-set-selections
+- sudo apt-get -y install oracle-java6-installer oracle-java6-set-default
+- wget https://archive.apache.org/dist/kafka/0.8.1.1/kafka_2.10-0.8.1.1.tgz -O kafka.tgz
 - mkdir -p kafka && tar xzf kafka.tgz -C kafka --strip-components 1
-- nohup bash -c "cd kafka && bin/zookeeper-server-start.sh config/zookeeper.properties &"
+- nohup bash -c "cd kafka && bin/zookeeper-server-start.sh config/zookeeper.properties 1>> /tmp/zk.log 2>> /tmp/zk.log &"
 - sleep 5
-- nohup bash -c "cd kafka && bin/kafka-server-start.sh config/server.properties &"
+- nohup bash -c "cd kafka && bin/kafka-server-start.sh /opt/server.properties 1>> /tmp/broker.log 2>> /tmp/broker.log &"
 - sleep 5
+- kafka/bin/kafka-topics.sh --create --partitions 1 --replication-factor 1 --topic single_partition --zookeeper go-zookeeper:2181
 - kafka/bin/kafka-topics.sh --create --partitions 2 --replication-factor 1 --topic partitions_test --zookeeper go-zookeeper:2181
