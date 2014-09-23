@@ -11,7 +11,7 @@ before_install:
 - mkdir -p kafka && tar xzf kafka.tgz -C kafka --strip-components 1
 - nohup bash -c "cd kafka && bin/zookeeper-server-start.sh config/zookeeper.properties 1>> /tmp/zk.log 2>> /tmp/zk.log &"
 - sleep 10
-- nohup bash -c "cd kafka && bin/kafka-server-start.sh /opt/server.properties 1>> /tmp/broker.log 2>> /tmp/broker.log &"
+- nohup bash -c "cd kafka && bin/kafka-server-start.sh config/server.properties 1>> /tmp/broker.log 2>> /tmp/broker.log &"
 - sleep 10
 - kafka/bin/kafka-topics.sh --create --partitions 1 --replication-factor 1 --topic single_partition --zookeeper go-zookeeper:2181
 - kafka/bin/kafka-topics.sh --create --partitions 2 --replication-factor 1 --topic partitions_test --zookeeper go-zookeeper:2181
