@@ -14,7 +14,7 @@ var zookeeper = []string{"go-zookeeper:2181"}
 var singlePartitionsTopic = "single_partition"
 var multiplePartitionsTopic = "partitions_test"
 
-var timeout time.Duration = 10
+var timeout time.Duration = 20
 
 var testMessage = uuid.New()
 var testTopic = uuid.New()

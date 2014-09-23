@@ -15,3 +15,4 @@ before_install:
 - sleep 10
 - kafka/bin/kafka-topics.sh --create --partitions 1 --replication-factor 1 --topic single_partition --zookeeper go-zookeeper:2181
 - kafka/bin/kafka-topics.sh --create --partitions 2 --replication-factor 1 --topic partitions_test --zookeeper go-zookeeper:2181
+- sleep 30
