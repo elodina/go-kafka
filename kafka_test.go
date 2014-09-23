@@ -11,7 +11,9 @@ import (
 
 var brokers = []string{"go-broker:9092"}
 var zookeeper = []string{"go-zookeeper:2181"}
-var multiplePartitionsTopic = "partitions_test" //taken from vagrant/go.sh
+var multiplePartitionsTopic = "partitions_test"
+
+//taken from vagrant/go.sh
 var timeout time.Duration = 10
 
 var testMessage = uuid.New()
@@ -28,7 +30,15 @@ func sendAndConsumeRoutine(t *testing.T, quit chan int) {
 
 	kafkaConsumer := consumer.NewKafkaConsumer(testTopic, testGroupId, brokers, nil)
 	fmt.Printf("Trying to consume the message with group %s\n", testGroupId)
-	go kafkaConsumer.Read(readFunc(1, t, quit))
+	go kafkaConsumer.Read(func(bytes []byte) {
+		message := string(bytes)
+		if (message != testMessage) {
+			t.Errorf("Produced value %s and consumed value %s do not match.", testMessage, message)
+		} else {
+			fmt.Printf("Consumer %d successfully consumed a message %s\n", 1, message)
+		}
+		quit <- 1
+	})
 	time.Sleep(timeout * time.Second)
 	t.Errorf("Failed to produce and consume a value within %d seconds", timeout)
 	quit <- 1
@@ -40,15 +50,31 @@ func sendAndConsumeGroupsRoutine(t *testing.T, quit chan int) {
 	fmt.Printf("Sending message %s to topic %s\n", testMessage, testTopic2)
 	kafkaProducer.Send(testMessage)
 
+	messageCount := 0
+	readFunc := func(consumerId int) func([]byte) {
+		return func(bytes []byte) {
+			message := string(bytes)
+			if (message != testMessage) {
+				t.Errorf("Produced value %s and consumed value %s do not match.", testMessage, message)
+			} else {
+				fmt.Printf("Consumer %d successfully consumed a message %s\n", consumerId, message)
+			}
+			messageCount++
+			quit <- 1
+		}
+	}
+
 	consumer1 := consumer.NewKafkaConsumer(testTopic2, testGroupId, brokers, nil)
 	fmt.Printf("Trying to consume the message with Consumer 1 and group %s\n", testGroupId)
-	go consumer1.Read(readFunc(1, t, quit))
+	go consumer1.Read(readFunc(1))
 
 	consumer2 := consumer.NewKafkaConsumer(testTopic2, testGroupId2, brokers, nil)
 	fmt.Printf("Trying to consume the message with Consumer 2 and group %s\n", testGroupId2)
-	go consumer2.Read(readFunc(2, t, quit))
+	go consumer2.Read(readFunc(2))
 	time.Sleep(timeout * time.Second)
-	t.Errorf("Failed to produce and consume a value within %d seconds", timeout)
+	if (messageCount != 2) {
+		t.Errorf("Failed to produce and consume a value within %d seconds", timeout)
+	}
 	quit <- 1
 	quit <- 1
 }
@@ -163,18 +189,6 @@ func consumerGroupsMultiplePartitionsRoutine(t *testing.T, quit chan int) {
 	kafkaProducer.Close()
 	consumer1.Close()
 	quit <- 1
-}
-
-func readFunc(consumerId int, t *testing.T, quit chan int) func([]byte) {
-	return func(bytes []byte) {
-		message := string(bytes)
-		if (message != testMessage) {
-			t.Errorf("Produced value %s and consumed value %s do not match.", testMessage, message)
-		} else {
-			fmt.Printf("Consumer %d successfully consumed a message %s\n", consumerId, message)
-		}
-		quit <- 1
-	}
 }
 
 func TestSendAndConsume(t *testing.T) {
