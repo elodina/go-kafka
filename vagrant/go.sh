@@ -41,6 +41,18 @@ export GOPATH=/usr/local/go/home/
 
 go get github.com/stealthly/go-kafka
 
-/opt/apache/kafka/bin/kafka-topics.sh --create --zookeeper 192.168.86.5:2181 --replication-factor 1 --partitions 2 --topic partitions_test
+#GO_BROKER=$(sudo grep -R go-broker /etc/hosts)
+#if [ -z "$GO_BROKER" ]; then
+#    echo "adding go-broker to /etc/hosts.."
+echo "192.168.86.10 go-broker" >> /etc/hosts
+#fi
+
+#GO_ZOOKEEPER=$(sudo grep -R go-zookeeper /etc/hosts)
+#if [ -z "$GO_ZOOKEEPER" ]; then
+#    echo "adding go-zookeeper to /etc/hosts.."
+echo "192.168.86.5 go-zookeeper" >> /etc/hosts
+#fi
+
+/opt/apache/kafka/bin/kafka-topics.sh --create --zookeeper go-zookeeper:2181 --replication-factor 1 --partitions 2 --topic partitions_test
 
 exitscript

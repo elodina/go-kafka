@@ -9,8 +9,8 @@ import (
 	"github.com/stealthly/go-kafka/consumer"
 )
 
-var brokers = []string{"192.168.86.10:9092"}
-var zookeeper = []string{"192.168.86.5:2181"}
+var brokers = []string{"go-broker:9092"}
+var zookeeper = []string{"go-zookeeper:2181"}
 var multiplePartitionsTopic = "partitions_test" //taken from vagrant/go.sh
 var timeout time.Duration = 10
 
