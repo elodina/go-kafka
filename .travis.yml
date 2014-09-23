@@ -14,3 +14,5 @@ before_install:
 - nohup bash -c "cd kafka && bin/kafka-server-start.sh config/server.properties &"
 - sleep 5
 - kafka/bin/kafka-topics.sh --create --partitions 2 --replication-factor 1 --topic partitions_test --zookeeper go-zookeeper:2181
+
+script: go test -v ./test/...
