@@ -1,0 +1,16 @@
+language: go
+go:
+- 1.1
+- 1.2
+- 1.3
+
+before_install:
+- echo "127.0.0.1 go-broker" >> /etc/hosts
+- echo "127.0.0.1 go-zookeeper" >> /etc/hosts
+- wget http://apache.mirror.nexicom.net/kafka/0.8.1.1/kafka_2.10-0.8.1.1.tgz -O kafka.tgz
+- mkdir -p kafka && tar xzf kafka.tgz -C kafka --strip-components 1
+- nohup bash -c "cd kafka && bin/zookeeper-server-start.sh config/zookeeper.properties &"
+- sleep 5
+- nohup bash -c "cd kafka && bin/kafka-server-start.sh config/server.properties &"
+- sleep 5
+- kafka/bin/kafka-topics.sh --create --partitions 2 --replication-factor 1 --topic partitions_test --zookeeper go-zookeeper:2181
