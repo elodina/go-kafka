@@ -1,4 +1,4 @@
-package test
+package main
 
 import (
 	"testing"
@@ -80,7 +80,7 @@ func consumerGroupsSinglePartitionRoutine(t *testing.T, quit chan int) {
 	select {
 	case <-waiter1:
 		//wait a bit to commit offset
-		time.Sleep(1 * time.Second)
+		time.Sleep(2 * time.Second)
 	case <-time.After(timeout * time.Second):
 		t.Errorf("Failed to consume messages with Consumer 1 within %d seconds", timeout)
 	}
