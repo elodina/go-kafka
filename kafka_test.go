@@ -7,6 +7,9 @@ import (
 	"time"
 	"github.com/stealthly/go-kafka/producer"
 	"github.com/stealthly/go-kafka/consumer"
+	"github.com/Shopify/sarama"
+	"log"
+	"os"
 )
 
 var brokers = []string{"go-broker:9092"}
@@ -195,6 +198,7 @@ func consumerGroupsMultiplePartitionsRoutine(t *testing.T, quit chan int) {
 }
 
 func TestSendAndConsume(t *testing.T) {
+	sarama.Logger = log.New(os.Stdout, "[Sarama] ", log.LstdFlags)
 	quit := make(chan int)
 	go sendAndConsumeRoutine(t, quit)
 
