@@ -29,7 +29,11 @@ func sendAndConsumeRoutine(t *testing.T, quit chan int) {
 	fmt.Println("Starting sample broker testing")
 	kafkaProducer := producer.NewKafkaProducer(testTopic, brokers, nil)
 	fmt.Printf("Sending message %s to topic %s\n", testMessage, testTopic)
-	kafkaProducer.Send(testMessage)
+	err := kafkaProducer.Send(testMessage)
+	if (err != nil) {
+		t.Fatalf("Failed to produce message: %v", err)
+		quit <- 1
+	}
 
 	kafkaConsumer := consumer.NewKafkaConsumer(testTopic, testGroupId, brokers, nil)
 	fmt.Printf("Trying to consume the message with group %s\n", testGroupId)
@@ -55,7 +59,12 @@ func sendAndConsumeGroupsRoutine(t *testing.T, quit chan int) {
 	fmt.Println("Starting sample broker testing")
 	kafkaProducer := producer.NewKafkaProducer(testTopic2, brokers, nil)
 	fmt.Printf("Sending message %s to topic %s\n", testMessage, testTopic2)
-	kafkaProducer.Send(testMessage)
+	err := kafkaProducer.Send(testMessage)
+	if (err != nil) {
+		t.Fatalf("Failed to produce message: %v", err)
+		quit <- 1
+		quit <- 1
+	}
 
 	messageCount := 0
 	readFunc := func(consumerId int) func([]byte) {
