@@ -23,8 +23,8 @@ var readTopic string
 var writeTopic string
 var group = "ping-pong-go-group"
 
-var broker = "192.168.86.10:9092"
-var zookeeper = "192.168.86.5:2181"
+var broker = "localhost:9092"
+var zookeeper = "localhost:2181"
 
 var kafkaProducer *producer.KafkaProducer = nil
 var kafkaConsumer *consumer.KafkaConsumerGroup = nil
