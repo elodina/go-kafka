@@ -42,6 +42,10 @@ func (kafkaProducer *KafkaProducer) Send(message string) error {
 	return kafkaProducer.producer.SendMessage(kafkaProducer.Topic, nil, sarama.StringEncoder(message))
 }
 
+func (kafkaProducer *KafkaProducer) SendBytes(message []byte) error {
+	return kafkaProducer.producer.SendMessage(kafkaProducer.Topic, nil, sarama.ByteEncoder(message))
+}
+
 // Close indicates that no more messages will be produced with this producer and closes all underlying connections. It is required to call this function before
 // a producer object passes out of scope, as it will otherwise leak memory.
 func (kafkaProducer *KafkaProducer) Close() {
