@@ -9,16 +9,20 @@ import (
 	"os/signal"
 	"github.com/stealthly/go-avro/decoder"
 	"math/big"
+	"code.google.com/p/go-uuid/uuid"
+	"io/ioutil"
 )
 
 type PingPong struct {
 	Counter int64
 	Name    string
+	Uuid	string
 }
 
-var schemaRegistry = map[int64][]byte {
-	int64(0): []byte("{\"type\":\"record\",\"name\":\"PingPong\",\"namespace\":\"scalago\",\"fields\":[{\"name\":\"counter\",\"type\":\"long\"},{\"name\":\"name\",\"type\":\"string\"}]}"),
+var schemaRegistry = map[int64]string {
+	int64(0): "./scalago.avsc",
 }
+
 var readTopic string
 var writeTopic string
 var group = "ping-pong-go-group"
@@ -69,48 +73,61 @@ func pingPongLoop(p *PingPong) {
 
 func modify(obj *PingPong) {
 	obj.Counter++
+	obj.Uuid = uuid.New()
 }
 
 func encode(obj *PingPong) []byte {
-	return []byte(fmt.Sprintf("%d", obj.Counter))
+	enc := decoder.NewBinaryEncoder()
+
+	data := []byte {CAMUS_MAGIC}
+	data = append(data, []byte{0x00, 0x00, 0x00, 0x00}...)
+	data = append(data, enc.WriteLong(obj.Counter)...)
+	data = append(data, enc.WriteString(obj.Name)...)
+	data = append(data, enc.WriteString(obj.Uuid)...)
+	return data
 }
 
 func decode(obj interface{}, bytes []byte) {
-	dec := decoder.NewBinaryDecoder(bytes)
-	dec.Seek(1)
-	schemaIdArray := make([]byte, 4)
-	dec.ReadFixed(schemaIdArray)
-
-	schema := schemaById(schemaIdArray)
-	datumReader := decoder.NewGenericDatumReader()
-	datumReader.SetSchema(schema)
-
-	datumReader.Read(obj, dec)
+	NewCamusData(bytes).Read(obj)
 }
 
 func schemaById(bytes []byte) *decoder.Schema {
 	id := new (big.Int)
 	id.SetBytes(bytes)
-	schemaBytes := schemaRegistry[id.Int64()]
-	return decoder.AvroSchema(schemaBytes)
+	schemaFile := schemaRegistry[id.Int64()]
+	if schemaBytes, err := ioutil.ReadFile(schemaFile); err != nil {
+		panic(err)
+	} else {
+		return decoder.AvroSchema(schemaBytes)
+	}
 }
 
-//var CAMUS_MAGIC []byte = []byte {0}
-//
-//type CamusData struct {
-//	dec *decoder.BinaryDecoder
-//}
-//
-//func NewCamusData(data []byte) *CamusData {
-//	dec := decoder.NewBinaryDecoder(data)
-//	if magic, err := dec.ReadInt(); err != nil {
-//		panic(err)
-//	} else {
-//		if byte(magic) != CAMUS_MAGIC {
-//			panic("Wrong Camus magic byte")
-//		}
-//
-//		schemaIdArray := make([]byte, 4)
-//		dec.ReadFixed(schemaIdArray)
-//	}
-//}
+var CAMUS_MAGIC byte = byte(0)
+
+type CamusData struct {
+	dec *decoder.BinaryDecoder
+	datumReader decoder.DatumReader
+}
+
+func NewCamusData(data []byte) *CamusData {
+	dec := decoder.NewBinaryDecoder(data)
+	if magic, err := dec.ReadInt(); err != nil {
+		panic(err)
+	} else {
+		if byte(magic) != CAMUS_MAGIC {
+			panic("Wrong Camus magic byte")
+		}
+
+		schemaIdArray := make([]byte, 4)
+		dec.ReadFixed(schemaIdArray)
+		schema := schemaById(schemaIdArray)
+		datumReader := decoder.NewGenericDatumReader()
+		datumReader.SetSchema(schema)
+
+		return &CamusData{dec, datumReader}
+	}
+}
+
+func (cd *CamusData) Read(obj interface{}) {
+	cd.datumReader.Read(obj, cd.dec)
+}
