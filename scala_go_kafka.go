@@ -19,6 +19,11 @@ type PingPong struct {
 	Uuid	string
 }
 
+//custom string representation to match Scala version. just to simplify reading the console output
+func (p *PingPong) String() string {
+	return fmt.Sprintf("{\"counter\": %d, \"name\": \"%s\", \"uuid\": \"%s\"}", p.Counter, p.Name, p.Uuid)
+}
+
 var schemaRegistry = map[int64]string {
 	int64(0): "./scalago.avsc",
 }
@@ -65,7 +70,7 @@ func pingPongLoop(p *PingPong) {
 	kafkaConsumer.Read(func(bytes []byte) {
 		time.Sleep(2 * time.Second)
 		decode(p, bytes)
-		fmt.Printf("golang > received %#v\n", p)
+		fmt.Printf("golang > received %v\n", p)
 		modify(p)
 		kafkaProducer.SendBytes(encode(p))
 	})
