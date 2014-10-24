@@ -4,19 +4,23 @@ import (
 	"fmt"
 	"github.com/stealthly/go-kafka/producer"
 	"github.com/stealthly/go-kafka/consumer"
+	"github.com/stealthly/go-avro/decoder"
+	"github.com/stealthly/go-avro/encoder"
+	"github.com/stealthly/go-avro/schema"
+	"github.com/stealthly/go-avro/avro"
 	"time"
 	"os"
 	"os/signal"
-	"github.com/stealthly/go-avro/decoder"
 	"math/big"
 	"code.google.com/p/go-uuid/uuid"
 	"io/ioutil"
+	"bytes"
 )
 
 type PingPong struct {
 	Counter int64
 	Name    string
-	Uuid	string
+	Uuid    string
 }
 
 //custom string representation to match Scala version. just to simplify reading the console output
@@ -69,10 +73,10 @@ func pingPongLoop(p *PingPong) {
 	fmt.Println("golang > Started!")
 	kafkaConsumer.Read(func(bytes []byte) {
 		time.Sleep(2 * time.Second)
-		decode(p, bytes)
+		camus := decode(p, bytes)
 		fmt.Printf("golang > received %v\n", p)
 		modify(p)
-		kafkaProducer.SendBytes(encode(p))
+		kafkaProducer.SendBytes(encode(p, camus.schemaId))
 	})
 }
 
@@ -81,37 +85,43 @@ func modify(obj *PingPong) {
 	obj.Uuid = uuid.New()
 }
 
-func encode(obj *PingPong) []byte {
-	enc := decoder.NewBinaryEncoder()
+func encode(obj *PingPong, schemaId []byte) []byte {
+	buffer := &bytes.Buffer{}
+	buffer.Write([]byte {CAMUS_MAGIC})
+	buffer.Write(schemaId)
 
-	data := []byte {CAMUS_MAGIC}
-	data = append(data, []byte{0x00, 0x00, 0x00, 0x00}...)
-	data = append(data, enc.WriteLong(obj.Counter)...)
-	data = append(data, enc.WriteString(obj.Name)...)
-	data = append(data, enc.WriteString(obj.Uuid)...)
-	return data
+	enc := encoder.NewBinaryEncoder(buffer)
+	writer := encoder.NewGenericDatumWriter()
+	writer.SetSchema(schemaById(schemaId))
+
+	writer.Write(obj, enc)
+
+	return buffer.Bytes()
 }
 
-func decode(obj interface{}, bytes []byte) {
-	NewCamusData(bytes).Read(obj)
+func decode(obj interface{}, bytes []byte) *CamusData {
+	camus := NewCamusData(bytes)
+	camus.Read(obj)
+	return camus
 }
 
-func schemaById(bytes []byte) *decoder.Schema {
-	id := new (big.Int)
+func schemaById(bytes []byte) schema.Schema {
+	id := new(big.Int)
 	id.SetBytes(bytes)
 	schemaFile := schemaRegistry[id.Int64()]
 	if schemaBytes, err := ioutil.ReadFile(schemaFile); err != nil {
 		panic(err)
 	} else {
-		return decoder.AvroSchema(schemaBytes)
+		return schema.Parse(schemaBytes)
 	}
 }
 
 var CAMUS_MAGIC byte = byte(0)
 
 type CamusData struct {
-	dec *decoder.BinaryDecoder
-	datumReader decoder.DatumReader
+	schemaId    []byte
+	dec        *decoder.BinaryDecoder
+	datumReader avro.DatumReader
 }
 
 func NewCamusData(data []byte) *CamusData {
@@ -129,7 +139,7 @@ func NewCamusData(data []byte) *CamusData {
 		datumReader := decoder.NewGenericDatumReader()
 		datumReader.SetSchema(schema)
 
-		return &CamusData{dec, datumReader}
+		return &CamusData{ schemaIdArray, dec, datumReader }
 	}
 }
 
