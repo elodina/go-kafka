@@ -22,7 +22,7 @@ type KafkaConsumerGroup struct {
 // Connects to a consumer group, using Zookeeper for auto-discovery
 // You may also provide a consumergroup.ConsumerGroupConfig with more precise configurations or nil to use default configuration
 func NewKafkaConsumerGroup(topic string, groupId string, zookeeper []string, config *consumergroup.ConsumerGroupConfig) *KafkaConsumerGroup {
-	cons, consumerErr := consumergroup.JoinConsumerGroup(groupId, topic, zookeeper, config)
+	cons, consumerErr := consumergroup.JoinConsumerGroup(groupId, []string{topic}, zookeeper, config)
 	if consumerErr != nil {
 		panic(consumerErr)
 	}
@@ -33,7 +33,8 @@ func NewKafkaConsumerGroup(topic string, groupId string, zookeeper []string, con
 // Read starts consuming messages until the consumer is closed and applies the writeFunc to each consumed message.
 // Note that this function blocks so should probably be used in a new go routine
 func (consumerGroup *KafkaConsumerGroup) Read(writeFunc func(bytes []byte)) {
-	stream := consumerGroup.consumer.Stream()
+//	consumerGroup.consumer.
+	stream := consumerGroup.consumer.Events()
 	for {
 		event, ok := <-stream
 		if !ok {
