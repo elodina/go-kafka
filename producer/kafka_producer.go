@@ -36,14 +36,16 @@ func NewKafkaProducer(topic string, brokerList []string, config *sarama.Producer
 	return &KafkaProducer{topic, brokerList, client, producer}
 }
 
-// Synchronously sends a message with this produces
-func (kafkaProducer *KafkaProducer) Send(message string) error {
+// Synchronously sends a message with this producer
+func (kafkaProducer *KafkaProducer) Send(message string) *sarama.ProduceError {
 	//TODO do we need keys? what about partitioning?
-	return kafkaProducer.producer.SendMessage(kafkaProducer.Topic, nil, sarama.StringEncoder(message))
+	kafkaProducer.producer.Input() <- &sarama.MessageToSend{Topic: kafkaProducer.Topic, Key: nil, Value: sarama.StringEncoder(message)}
+	return <- kafkaProducer.producer.Errors()
 }
 
-func (kafkaProducer *KafkaProducer) SendBytes(message []byte) error {
-	return kafkaProducer.producer.SendMessage(kafkaProducer.Topic, nil, sarama.ByteEncoder(message))
+func (kafkaProducer *KafkaProducer) SendBytes(message []byte) *sarama.ProduceError {
+	kafkaProducer.producer.Input() <- &sarama.MessageToSend{Topic: kafkaProducer.Topic, Key: nil, Value: sarama.ByteEncoder(message)}
+	return <- kafkaProducer.producer.Errors()
 }
 
 // Close indicates that no more messages will be produced with this producer and closes all underlying connections. It is required to call this function before
