@@ -76,6 +76,7 @@ func pingPongLoop(p *PingPong) {
 		camus := decode(p, bytes)
 		fmt.Printf("golang > received %v\n", p)
 		modify(p)
+		fmt.Printf("golang > sending  %v\n", p)
 		kafkaProducer.SendBytes(encode(p, camus.schemaId))
 	})
 }
