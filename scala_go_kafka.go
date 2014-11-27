@@ -36,8 +36,8 @@ var readTopic string
 var writeTopic string
 var group = "ping-pong-go-group"
 
-var broker = "192.168.86.10:9092"
-var zookeeper = "192.168.86.5:2181"
+var broker = "go-broker:9092"
+var zookeeper = "go-zookeeper:2181"
 
 var kafkaProducer *producer.KafkaProducer = nil
 var kafkaConsumer *consumer.KafkaConsumerGroup = nil
@@ -45,7 +45,7 @@ var kafkaConsumer *consumer.KafkaConsumerGroup = nil
 func main() {
 	parseArgs()
 
-	kafkaProducer = producer.NewKafkaProducer(writeTopic, []string{broker}, nil)
+	kafkaProducer = producer.NewKafkaProducer(writeTopic, []string{broker})
 	kafkaConsumer = consumer.NewKafkaConsumerGroup(readTopic, group, []string{zookeeper}, nil)
 
 	p := &PingPong{}
@@ -76,8 +76,9 @@ func pingPongLoop(p *PingPong) {
 		camus := decode(p, bytes)
 		fmt.Printf("golang > received %v\n", p)
 		modify(p)
-		fmt.Printf("golang > sending  %v\n", p)
-		kafkaProducer.SendBytes(encode(p, camus.schemaId))
+		if err := kafkaProducer.SendBytesSync(encode(p, camus.schemaId)); err != nil {
+			panic(err)
+		}
 	})
 }
 

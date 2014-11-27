@@ -22,12 +22,15 @@ type KafkaProducer struct {
 
 // NewKafkaProducer creates a new produce. It will publish messages to the given topic.
 // You may also provide a sarama.ProducerConfig with more precise configurations or nil to use default configuration
-func NewKafkaProducer(topic string, brokerList []string, config *sarama.ProducerConfig) *KafkaProducer {
+func NewKafkaProducer(topic string, brokerList []string) *KafkaProducer {
 	client, err := sarama.NewClient(uuid.New(), brokerList, sarama.NewClientConfig())
 	if err != nil {
 		panic(err)
 	}
 
+	config := sarama.NewProducerConfig()
+	config.FlushMsgCount = 1
+	config.AckSuccesses = true
 	producer, err := sarama.NewProducer(client, config)
 	if err != nil {
 		panic(err)
@@ -36,16 +39,23 @@ func NewKafkaProducer(topic string, brokerList []string, config *sarama.Producer
 	return &KafkaProducer{topic, brokerList, client, producer}
 }
 
-// Synchronously sends a message with this producer
-func (kafkaProducer *KafkaProducer) Send(message string) *sarama.ProduceError {
-	//TODO do we need keys? what about partitioning?
-	kafkaProducer.producer.Input() <- &sarama.MessageToSend{Topic: kafkaProducer.Topic, Key: nil, Value: sarama.StringEncoder(message)}
-	return <- kafkaProducer.producer.Errors()
+func (kafkaProducer *KafkaProducer) SendStringSync(message string) error {
+	return kafkaProducer.sendSync(sarama.StringEncoder(message))
 }
 
-func (kafkaProducer *KafkaProducer) SendBytes(message []byte) *sarama.ProduceError {
-	kafkaProducer.producer.Input() <- &sarama.MessageToSend{Topic: kafkaProducer.Topic, Key: nil, Value: sarama.ByteEncoder(message)}
-	return <- kafkaProducer.producer.Errors()
+func (kafkaProducer *KafkaProducer) SendBytesSync(message []byte) error {
+	return kafkaProducer.sendSync(sarama.ByteEncoder(message))
+}
+
+func (kafkaProducer *KafkaProducer) sendSync(encoder sarama.Encoder) error {
+	message := &sarama.MessageToSend{Topic: kafkaProducer.Topic, Key: nil, Value: encoder}
+	kafkaProducer.producer.Input() <- message
+	select {
+	case error := <-kafkaProducer.producer.Errors():
+		return error.Err
+	case <-kafkaProducer.producer.Successes():
+		return nil
+	}
 }
 
 // Close indicates that no more messages will be produced with this producer and closes all underlying connections. It is required to call this function before
