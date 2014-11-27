@@ -27,9 +27,9 @@ var testGroupId2 = uuid.New()
 
 func sendAndConsumeRoutine(t *testing.T, quit chan int) {
 	fmt.Println("Starting sample broker testing")
-	kafkaProducer := producer.NewKafkaProducer(testTopic, brokers, nil)
+	kafkaProducer := producer.NewKafkaProducer(testTopic, brokers)
 	fmt.Printf("Sending message %s to topic %s\n", testMessage, testTopic)
-	err := kafkaProducer.Send(testMessage)
+	err := kafkaProducer.SendStringSync(testMessage)
 	if (err != nil) {
 		t.Fatalf("Failed to produce message: %v", err)
 		quit <- 1
@@ -57,9 +57,9 @@ func sendAndConsumeRoutine(t *testing.T, quit chan int) {
 
 func sendAndConsumeGroupsRoutine(t *testing.T, quit chan int) {
 	fmt.Println("Starting sample broker testing")
-	kafkaProducer := producer.NewKafkaProducer(testTopic2, brokers, nil)
+	kafkaProducer := producer.NewKafkaProducer(testTopic2, brokers)
 	fmt.Printf("Sending message %s to topic %s\n", testMessage, testTopic2)
-	err := kafkaProducer.Send(testMessage)
+	err := kafkaProducer.SendStringSync(testMessage)
 	if (err != nil) {
 		t.Fatalf("Failed to produce message: %v", err)
 		quit <- 1
@@ -99,10 +99,10 @@ func consumerGroupsSinglePartitionRoutine(t *testing.T, quit chan int) {
 	consumerGroup1 := uuid.New()
 
 	//create a new producer and send 2 messages to a random topic
-	kafkaProducer := producer.NewKafkaProducer(singlePartitionsTopic, brokers, nil)
+	kafkaProducer := producer.NewKafkaProducer(singlePartitionsTopic, brokers)
 	fmt.Printf("Sending message 1 and 2 to topic %s\n", singlePartitionsTopic)
-	kafkaProducer.Send("1")
-	kafkaProducer.Send("2")
+	kafkaProducer.SendStringSync("1")
+	kafkaProducer.SendStringSync("2")
 
 	//create a new consumer and try to consume the 2 produced messages
 	consumer1 := consumer.NewKafkaConsumerGroup(singlePartitionsTopic, consumerGroup1, zookeepers, nil)
@@ -148,7 +148,7 @@ func consumerGroupsSinglePartitionRoutine(t *testing.T, quit chan int) {
 	fmt.Println("produce 50 more messages")
 	numMessages := 50
 	for i := 3; i < 3+numMessages; i++ {
-		kafkaProducer.Send(uuid.New())
+		kafkaProducer.SendStringSync(uuid.New())
 	}
 
 	fmt.Println("consume these messages with a consumer group")
@@ -174,12 +174,12 @@ func consumerGroupsSinglePartitionRoutine(t *testing.T, quit chan int) {
 }
 
 func consumerGroupsMultiplePartitionsRoutine(t *testing.T, quit chan int) {
-	kafkaProducer := producer.NewKafkaProducer(multiplePartitionsTopic, brokers, nil)
+	kafkaProducer := producer.NewKafkaProducer(multiplePartitionsTopic, brokers)
 	totalMessages := 100
 	fmt.Printf("Sending %d messages to topic %s\n", totalMessages, multiplePartitionsTopic)
 	go func() {
 		for i := 0; i < totalMessages; i++ {
-			kafkaProducer.Send(fmt.Sprintf("partitioned %d", i))
+			kafkaProducer.SendStringSync(fmt.Sprintf("partitioned %d", i))
 		}
 	}()
 
