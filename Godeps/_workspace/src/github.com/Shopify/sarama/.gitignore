@@ -2,6 +2,7 @@
 *.o
 *.a
 *.so
+*.test
 
 # Folders
 _obj
@@ -21,5 +22,3 @@ _cgo_export.*
 _testmain.go
 
 *.exe
-*.test
-

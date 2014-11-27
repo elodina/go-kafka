@@ -1,0 +1,44 @@
+{
+	"ImportPath": "github.com/stealthly/go-kafka",
+	"GoVersion": "go1.3.3",
+	"Deps": [
+		{
+			"ImportPath": "code.google.com/p/go-uuid/uuid",
+			"Comment": "null-12",
+			"Rev": "7dda39b2e7d5e265014674c5af696ba4186679e9"
+		},
+		{
+			"ImportPath": "code.google.com/p/snappy-go/snappy",
+			"Comment": "null-15",
+			"Rev": "12e4b4183793ac4b061921e7980845e750679fd0"
+		},
+		{
+			"ImportPath": "github.com/Shopify/sarama",
+			"Rev": "e9965215dc7a797a30ac9dce5ab1104c8c458bfc"
+		},
+		{
+			"ImportPath": "github.com/samuel/go-zookeeper/zk",
+			"Rev": "ad552be7b78b762b4a8040ffc5518bdaf5b7225d"
+		},
+		{
+			"ImportPath": "github.com/stealthly/go-avro/avro",
+			"Rev": "8c3849e96910bb899bd942b3155838d16ed43cc8"
+		},
+		{
+			"ImportPath": "github.com/stealthly/go-avro/decoder",
+			"Rev": "8c3849e96910bb899bd942b3155838d16ed43cc8"
+		},
+		{
+			"ImportPath": "github.com/stealthly/go-avro/encoder",
+			"Rev": "8c3849e96910bb899bd942b3155838d16ed43cc8"
+		},
+		{
+			"ImportPath": "github.com/stealthly/go-avro/schema",
+			"Rev": "8c3849e96910bb899bd942b3155838d16ed43cc8"
+		},
+		{
+			"ImportPath": "github.com/wvanbergen/kafka/consumergroup",
+			"Rev": "80b9c49365d0558ebde57ab6bd6942fcb5fb6f84"
+		}
+	]
+}
