@@ -2,16 +2,37 @@ language: go
 go:
 - 1.2
 - 1.3
+- 1.4
+- tip
 
 before_install:
 - echo "127.0.0.1 go-broker" | sudo tee -a /etc/hosts
 - echo "127.0.0.1 go-zookeeper" | sudo tee -a /etc/hosts
-- wget https://archive.apache.org/dist/kafka/0.8.1.1/kafka_2.10-0.8.1.1.tgz -O kafka.tgz
-- mkdir -p kafka && tar xzf kafka.tgz -C kafka --strip-components 1
-- nohup bash -c "cd kafka && bin/zookeeper-server-start.sh config/zookeeper.properties 1>> /tmp/zk.log 2>> /tmp/zk.log &"
-- sleep 10
-- nohup bash -c "cd kafka && bin/kafka-server-start.sh config/server.properties 1>> /tmp/broker.log 2>> /tmp/broker.log &"
-- sleep 10
-- kafka/bin/kafka-topics.sh --create --partitions 1 --replication-factor 1 --topic single_partition --zookeeper go-zookeeper:2181
-- kafka/bin/kafka-topics.sh --create --partitions 2 --replication-factor 1 --topic partitions_test --zookeeper go-zookeeper:2181
-- sleep 30
+- export KAFKA_VERSION=0.8.2-beta
+- export SCALA_VERSION=2.10
+- export KAFKA_RELEASE=kafka_$SCALA_VERSION-$KAFKA_VERSION
+- export KAFKA_URL=https://archive.apache.org/dist/kafka/$KAFKA_VERSION/$KAFKA_RELEASE.tgz
+- export KAFKA_PATH=/tmp/$KAFKA_RELEASE
+- export BROKER_ID=1
+- export HOST_IP=localhost
+- export PORT=9092
+- export ZK_VERSION=3.4.6
+- export ZK_RELEASE=zookeeper-$ZK_VERSION
+- export ZK_URL=http://apache.ip-connect.vn.ua/zookeeper/zookeeper-$ZK_VERSION/$ZK_RELEASE.tar.gz
+- export ZK_HOME=/tmp/$ZK_RELEASE
+- wget -q $KAFKA_URL -O /tmp/$KAFKA_RELEASE.tgz
+- tar xfz /tmp/$KAFKA_RELEASE.tgz -C /tmp
+- wget -q $ZK_URL -O /tmp/$ZK_RELEASE.tar.gz
+- tar -xzf /tmp/$ZK_RELEASE.tar.gz -C /tmp
+- cp $ZK_HOME/conf/zoo_sample.cfg $ZK_HOME/conf/zoo.cfg
+- $ZK_HOME/bin/zkServer.sh start
+- sed -r -i "s/(zookeeper.connect)=(.*)/\\1=$ZK_PORT_2181_TCP_ADDR/g" $KAFKA_PATH/config/server.properties
+- sed -r -i "s/(broker.id)=(.*)/\\1=$BROKER_ID/g" $KAFKA_PATH/config/server.properties
+- sed -r -i "s/#(advertised.host.name)=(.*)/\\1=$HOST_IP/g" $KAFKA_PATH/config/server.properties
+- sed -r -i "s/^(port)=(.*)/\\1=$PORT/g" $KAFKA_PATH/config/server.properties
+- sed -r -i "s/^(log4j.rootLogger)=(.*)( stdout)/\\1=WARN\\3/g" $KAFKA_PATH/config/log4j.properties
+- $KAFKA_PATH/bin/kafka-server-start.sh $KAFKA_PATH/config/server.properties &
+
+after_script:
+- $KAFKA_PATH/bin/kafka-server-stop.sh
+- $ZK_HOME/bin/zkServer.sh stop

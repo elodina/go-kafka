@@ -39,6 +39,7 @@ rm go1.3.1.linux-amd64.tar.gz
 export PATH=$PATH:/usr/local/go/bin
 export GOPATH=/usr/local/go/home/
 
+go get github.com/stealthly/go_kafka_client
 go get github.com/stealthly/go-kafka
 
 #GO_BROKER=$(sudo grep -R go-broker /etc/hosts)
