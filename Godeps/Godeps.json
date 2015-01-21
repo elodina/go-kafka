@@ -35,6 +35,30 @@
         {
             "ImportPath": "github.com/stealthly/go_kafka_client",
             "Rev": "309604f359a9d1193c3541d4337e580c0f4d33e1"
+        },
+        {
+            "ImportPath": "github.com/mcuadros/go-syslog",
+            "Rev": "67a2b037f9694d5f12fff5c66233c92f5c277abb"
+        },
+        {
+            "ImportPath": "github.com/rcrowley/go-metrics",
+            "Rev": "dee209f2455f101a5e4e593dea94872d2c62d85d"
+        },
+        {
+            "ImportPath": "github.com/cihub/seelog",
+            "Rev": "92dc4b8b540607b8187cc2f95cac200211dcd745"
+        },
+        {
+            "ImportPath": "github.com/jimlawless/cfg",
+            "Rev": "4b1e3c1869d4e608fcbda6994e5f08dd9c6beaa1"
+        },
+        {
+            "ImportPath": "github.com/Shopify/sarama",
+            "Rev": "950d619a1a4b311a8b55bee5bd3a49c6cb82fdec"
+        },
+        {
+            "ImportPath": "github.com/golang/protobuf/proto",
+            "Rev": "7f07925444bb51fa4cf9dfe6f7661876f8852275"
         }
 	]
 }
