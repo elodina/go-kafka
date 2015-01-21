@@ -13,10 +13,6 @@
 			"Rev": "12e4b4183793ac4b061921e7980845e750679fd0"
 		},
 		{
-			"ImportPath": "github.com/Shopify/sarama",
-			"Rev": "e9965215dc7a797a30ac9dce5ab1104c8c458bfc"
-		},
-		{
 			"ImportPath": "github.com/samuel/go-zookeeper/zk",
 			"Rev": "ad552be7b78b762b4a8040ffc5518bdaf5b7225d"
 		},
