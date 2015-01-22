@@ -14,7 +14,24 @@
 		},
 		{
 			"ImportPath": "github.com/Shopify/sarama",
-			"Rev": "e9965215dc7a797a30ac9dce5ab1104c8c458bfc"
+			"Rev": "03ad601663634fd75eb357fee6782653f5a9a5ed"
+		},
+		{
+			"ImportPath": "github.com/cihub/seelog",
+			"Comment": "go1.1-51-g92dc4b8",
+			"Rev": "92dc4b8b540607b8187cc2f95cac200211dcd745"
+		},
+		{
+			"ImportPath": "github.com/eapache/go-resiliency/breaker",
+			"Rev": "ba73ce34de8ebe286f7eb54f43d2c830cd6e5592"
+		},
+		{
+			"ImportPath": "github.com/jimlawless/cfg",
+			"Rev": "4b1e3c1869d4e608fcbda6994e5f08dd9c6beaa1"
+		},
+		{
+			"ImportPath": "github.com/rcrowley/go-metrics",
+			"Rev": "dee209f2455f101a5e4e593dea94872d2c62d85d"
 		},
 		{
 			"ImportPath": "github.com/samuel/go-zookeeper/zk",
@@ -37,8 +54,8 @@
 			"Rev": "8c3849e96910bb899bd942b3155838d16ed43cc8"
 		},
 		{
-			"ImportPath": "github.com/wvanbergen/kafka/consumergroup",
-			"Rev": "80b9c49365d0558ebde57ab6bd6942fcb5fb6f84"
+			"ImportPath": "github.com/stealthly/go_kafka_client",
+			"Rev": "8e536ea59f833e9b0126e8d349a2d705372f74d8"
 		}
 	]
 }

@@ -3,11 +3,11 @@ package main
 import (
 	"fmt"
 	"github.com/stealthly/go-kafka/producer"
-	"github.com/stealthly/go-kafka/consumer"
 	"github.com/stealthly/go-avro/decoder"
 	"github.com/stealthly/go-avro/encoder"
 	"github.com/stealthly/go-avro/schema"
 	"github.com/stealthly/go-avro/avro"
+	"github.com/stealthly/go_kafka_client"
 	"time"
 	"os"
 	"os/signal"
@@ -40,15 +40,40 @@ var broker = "go-broker:9092"
 var zookeeper = "go-zookeeper:2181"
 
 var kafkaProducer *producer.KafkaProducer = nil
-var kafkaConsumer *consumer.KafkaConsumerGroup = nil
+var kafkaConsumer *go_kafka_client.Consumer = nil
 
 func main() {
 	parseArgs()
 
 	kafkaProducer = producer.NewKafkaProducer(writeTopic, []string{broker})
-	kafkaConsumer = consumer.NewKafkaConsumerGroup(readTopic, group, []string{zookeeper}, nil)
+
+	//Coordinator settings
+	zookeeperConfig := go_kafka_client.NewZookeeperConfig()
+	zookeeperConfig.ZookeeperConnect = []string{ zookeeper }
+
+	//Actual consumer settings
+	consumerConfig := go_kafka_client.DefaultConsumerConfig()
+	consumerConfig.Coordinator = go_kafka_client.NewZookeeperCoordinator(zookeeperConfig)
+	consumerConfig.Groupid = group
+	consumerConfig.NumWorkers = 1
+	consumerConfig.NumConsumerFetchers = 1
 
 	p := &PingPong{}
+
+	consumerConfig.Strategy = func(worker *go_kafka_client.Worker, message *go_kafka_client.Message, taskId go_kafka_client.TaskId) go_kafka_client.WorkerResult {
+		time.Sleep(2 * time.Second)
+		camus := decode(p, message.Value)
+		fmt.Printf("golang > received %v\n", p)
+		modify(p)
+		if err := kafkaProducer.SendBytesSync(encode(p, camus.schemaId)); err != nil {
+			panic(err)
+		}
+
+		return go_kafka_client.NewSuccessfulResult(taskId)
+	}
+
+	kafkaConsumer = go_kafka_client.NewConsumer(consumerConfig)
+
 	pingPongLoop(p)
 }
 
@@ -71,14 +96,8 @@ func pingPongLoop(p *PingPong) {
 	}()
 
 	fmt.Println("golang > Started!")
-	kafkaConsumer.Read(func(bytes []byte) {
-		time.Sleep(2 * time.Second)
-		camus := decode(p, bytes)
-		fmt.Printf("golang > received %v\n", p)
-		modify(p)
-		if err := kafkaProducer.SendBytesSync(encode(p, camus.schemaId)); err != nil {
-			panic(err)
-		}
+	kafkaConsumer.StartStatic(map[string]int{
+		readTopic : 1,
 	})
 }
 
