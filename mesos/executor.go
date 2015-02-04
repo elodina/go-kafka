@@ -1,35 +1,57 @@
-// +build executor
-
-package main
+package mesos
 
 import (
 	"github.com/mesos/mesos-go/executor"
 	mesos "github.com/mesos/mesos-go/mesosproto"
 	"fmt"
-	"time"
+	kafka "github.com/stealthly/go_kafka_client"
 )
 
 type GoKafkaClientExecutor struct {
 	tasksLaunched int
+	topic         string
+	partition     int32
+	consumer *kafka.Consumer
 }
 
-func NewGoKafkaClientExecutor() *GoKafkaClientExecutor {
-	return &GoKafkaClientExecutor{}
+func NewGoKafkaClientExecutor(zookeeper []string, topic string, partition int32) *GoKafkaClientExecutor {
+	kafka.Logger = kafka.NewDefaultLogger(kafka.DebugLevel)
+	zkConfig := kafka.NewZookeeperConfig()
+	zkConfig.ZookeeperConnect = zookeeper
+	config := kafka.DefaultConsumerConfig()
+	config.AutoOffsetReset = kafka.SmallestOffset
+	config.Coordinator = kafka.NewZookeeperCoordinator(zkConfig)
+	config.Strategy = func(_ *kafka.Worker, msg *kafka.Message, id kafka.TaskId) kafka.WorkerResult {
+		fmt.Printf("Got message: %s\n", string(msg.Value))
+		return kafka.NewSuccessfulResult(id)
+	}
+	config.WorkerFailedAttemptCallback = func(_ *kafka.Task, _ kafka.WorkerResult) kafka.FailedDecision {
+		return kafka.CommitOffsetAndContinue
+	}
+	config.WorkerFailureCallback = func(_ *kafka.WorkerManager) kafka.FailedDecision {
+		return kafka.DoNotCommitOffsetAndStop
+	}
+	consumer := kafka.NewConsumer(config)
+	return &GoKafkaClientExecutor{
+		topic: topic,
+		partition: partition,
+		consumer: consumer,
+	}
 }
 
-func (exec *GoKafkaClientExecutor) Registered(driver executor.ExecutorDriver, execInfo *mesos.ExecutorInfo, fwinfo *mesos.FrameworkInfo, slaveInfo *mesos.SlaveInfo) {
+func (this *GoKafkaClientExecutor) Registered(driver executor.ExecutorDriver, execInfo *mesos.ExecutorInfo, fwinfo *mesos.FrameworkInfo, slaveInfo *mesos.SlaveInfo) {
 	fmt.Println("Registered Executor on slave ", slaveInfo.GetHostname())
 }
 
-func (exec *GoKafkaClientExecutor) Reregistered(driver executor.ExecutorDriver, slaveInfo *mesos.SlaveInfo) {
+func (this *GoKafkaClientExecutor) Reregistered(driver executor.ExecutorDriver, slaveInfo *mesos.SlaveInfo) {
 	fmt.Println("Re-registered Executor on slave ", slaveInfo.GetHostname())
 }
 
-func (exec *GoKafkaClientExecutor) Disconnected(executor.ExecutorDriver) {
+func (this *GoKafkaClientExecutor) Disconnected(executor.ExecutorDriver) {
 	fmt.Println("Executor disconnected.")
 }
 
-func (exec *GoKafkaClientExecutor) LaunchTask(driver executor.ExecutorDriver, taskInfo *mesos.TaskInfo) {
+func (this *GoKafkaClientExecutor) LaunchTask(driver executor.ExecutorDriver, taskInfo *mesos.TaskInfo) {
 	fmt.Println("Launching task", taskInfo.GetName(), "with command", taskInfo.Command.GetValue())
 
 	runStatus := &mesos.TaskStatus{
@@ -41,12 +63,17 @@ func (exec *GoKafkaClientExecutor) LaunchTask(driver executor.ExecutorDriver, ta
 		fmt.Println("Got error", err)
 	}
 
-	exec.tasksLaunched++
-	fmt.Println("Total tasks launched ", exec.tasksLaunched)
-	//
-	// this is where one would perform the requested task
-	//
-	time.Sleep(60 * time.Second)
+	this.tasksLaunched++
+	fmt.Println("Total tasks launched ", this.tasksLaunched)
+	//this is for test purposes
+	//	go func() {
+	//		fmt.Println("Started sleep routine")
+	//		time.Sleep(time.Duration(rand.Intn(20) + 20) * time.Second)
+	//		fmt.Println("Sleep finished, closing consumer")
+	//		<-exec.consumer.Close()
+	//		fmt.Println("Close consumer finished")
+	//	}()
+	this.consumer.StartStaticPartitions(map[string][]int32 {this.topic : []int32{this.partition}})
 
 	// finish task
 	fmt.Println("Finishing task", taskInfo.GetName())
@@ -61,36 +88,18 @@ func (exec *GoKafkaClientExecutor) LaunchTask(driver executor.ExecutorDriver, ta
 	fmt.Println("Task finished", taskInfo.GetName())
 }
 
-func (exec *GoKafkaClientExecutor) KillTask(executor.ExecutorDriver, *mesos.TaskID) {
+func (this *GoKafkaClientExecutor) KillTask(executor.ExecutorDriver, *mesos.TaskID) {
 	fmt.Println("Kill task")
 }
 
-func (exec *GoKafkaClientExecutor) FrameworkMessage(driver executor.ExecutorDriver, msg string) {
+func (this *GoKafkaClientExecutor) FrameworkMessage(driver executor.ExecutorDriver, msg string) {
 	fmt.Println("Got framework message: ", msg)
 }
 
-func (exec *GoKafkaClientExecutor) Shutdown(executor.ExecutorDriver) {
+func (this *GoKafkaClientExecutor) Shutdown(executor.ExecutorDriver) {
 	fmt.Println("Shutting down the executor")
 }
 
-func (exec *GoKafkaClientExecutor) Error(driver executor.ExecutorDriver, err string) {
+func (this *GoKafkaClientExecutor) Error(driver executor.ExecutorDriver, err string) {
 	fmt.Println("Got error message:", err)
-}
-
-func main() {
-	fmt.Println("Starting Go Kafka Client Executor")
-
-	driver, err := executor.NewMesosExecutorDriver(NewGoKafkaClientExecutor())
-
-	if err != nil {
-		fmt.Println("Unable to create a ExecutorDriver ", err.Error())
-	}
-
-	_, err = driver.Start()
-	if err != nil {
-		fmt.Println("Got error:", err)
-		return
-	}
-	fmt.Println("Executor process has started and running.")
-	driver.Join()
 }
