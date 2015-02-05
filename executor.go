@@ -44,7 +44,12 @@ func main() {
 	parseAndValidateExecutorArgs()
 	fmt.Println("Starting Go Kafka Client Executor")
 
-	driver, err := executor.NewMesosExecutorDriver(mesos.NewGoKafkaClientExecutor(strings.Split(*zookeeper, ","), *group, *topic, int32(*partition)))
+	executorConfig := mesos.NewExecutorConfig()
+	executorConfig.Zookeeper = strings.Split(*zookeeper, ",")
+	executorConfig.Group = *group
+	executorConfig.Topic = *topic
+	executorConfig.Partition = int32(*partition)
+	driver, err := executor.NewMesosExecutorDriver(mesos.NewGoKafkaClientExecutor(executorConfig))
 
 	if err != nil {
 		fmt.Println("Unable to create a ExecutorDriver ", err.Error())

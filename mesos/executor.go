@@ -9,29 +9,33 @@ import (
 	"math/rand"
 )
 
+type ExecutorConfig struct {
+	Topic string
+	Partition int32
+	Zookeeper []string
+	Group string
+}
+
+func NewExecutorConfig() *ExecutorConfig {
+	return &ExecutorConfig{}
+}
+
 type GoKafkaClientExecutor struct {
-	topic          string
-	partition      int32
-	zookeeper      []string
-	group          string
+	Config *ExecutorConfig
 	consumers map[string]*kafka.Consumer
 }
 
-//TODO maybe replace with ExecutorConfig?
-func NewGoKafkaClientExecutor(zookeeper []string, group string, topic string, partition int32) *GoKafkaClientExecutor {
+func NewGoKafkaClientExecutor(config *ExecutorConfig) *GoKafkaClientExecutor {
 	kafka.Logger = kafka.NewDefaultLogger(kafka.DebugLevel)
 
 	return &GoKafkaClientExecutor{
-		topic: topic,
-		partition: partition,
-		zookeeper: zookeeper,
-		group: group,
+		Config: config,
 		consumers: make(map[string]*kafka.Consumer),
 	}
 }
 
 func (this *GoKafkaClientExecutor) String() string {
-	return fmt.Sprintf("Go Kafka Client Executor %s-%d", this.topic, this.partition)
+	return fmt.Sprintf("Go Kafka Client Executor %s-%d", this.Config.Topic, this.Config.Partition)
 }
 
 func (this *GoKafkaClientExecutor) Registered(driver executor.ExecutorDriver, execInfo *mesos.ExecutorInfo, fwinfo *mesos.FrameworkInfo, slaveInfo *mesos.SlaveInfo) {
@@ -73,7 +77,7 @@ func (this *GoKafkaClientExecutor) LaunchTask(driver executor.ExecutorDriver, ta
 		<-consumer.Close()
 		kafka.Debug(this, "Close consumer finished")
 	}()
-	consumer.StartStaticPartitions(map[string][]int32 {this.topic : []int32{this.partition}})
+	consumer.StartStaticPartitions(map[string][]int32 {this.Config.Topic : []int32{this.Config.Partition}})
 
 	// finish task
 	kafka.Debugf(this, "Finishing task %s", taskInfo.GetName())
@@ -118,9 +122,9 @@ func (this *GoKafkaClientExecutor) createNewConsumer() *kafka.Consumer {
 	//TODO make ZookeeperCoordinator.config visible outside, so we can let user set his ZK settings AND still replace connection URLs
 	SetupConsumerConfig(config)
 
-	config.Groupid = this.group
+	config.Groupid = this.Config.Group
 	zkConfig := kafka.NewZookeeperConfig()
-	zkConfig.ZookeeperConnect = this.zookeeper
+	zkConfig.ZookeeperConnect = this.Config.Zookeeper
 
 	config.Coordinator = kafka.NewZookeeperCoordinator(zkConfig)
 
