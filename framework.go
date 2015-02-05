@@ -22,6 +22,7 @@ var memPerConsumer = flag.Float64("mem.per.consumer", 256, "Memory per consumer 
 var executorBinaryName = flag.String("executor.name", "executor", "Executor binary name.")
 
 var zookeeper = flag.String("zookeeper", "", "Zookeeper connection string separated by comma.")
+var group = flag.String("group", "", "Consumer group name to start consumers in.")
 var whitelist = flag.String("whitelist", "", "Whitelist of topics to consume.")
 var blacklist = flag.String("blacklist", "", "Blacklist of topics to consume.")
 
@@ -30,6 +31,11 @@ func parseAndValidateSchedulerArgs() {
 
 	if *zookeeper == "" {
 		fmt.Println("Zookeeper connection string is required.")
+		os.Exit(1)
+	}
+
+	if *group == "" {
+		fmt.Println("Consumer group name is required.")
 		os.Exit(1)
 	}
 
@@ -69,6 +75,7 @@ func main() {
 	schedulerConfig.MemPerTask = *memPerConsumer
 	schedulerConfig.Filter = filter
 	schedulerConfig.Zookeeper = strings.Split(*zookeeper, ",")
+	schedulerConfig.GroupId = *group
 	schedulerConfig.ExecutorBinaryName = *executorBinaryName
 	schedulerConfig.ArtifactServerPort = *artifactServerPort
 	consumerScheduler, err := mesos.NewGoKafkaClientScheduler(schedulerConfig)
@@ -77,6 +84,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	//TODO shutting the framework down should close all consumers gracefully
 	driver, err := scheduler.NewMesosSchedulerDriver(consumerScheduler, frameworkInfo, *master, nil)
 
 	if err != nil {

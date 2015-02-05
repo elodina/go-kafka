@@ -15,6 +15,7 @@ type SchedulerConfig struct {
 	MemPerTask         float64
 	Filter             kafka.TopicFilter
 	Zookeeper          []string
+	GroupId            string
 	ArtifactServerPort int
 	ExecutorBinaryName string
 }
@@ -164,6 +165,7 @@ func (this *GoKafkaClientScheduler) getUnoccupiedTopicPartitions() (map[string][
 		}
 	}
 
+	// copying can be removed after this is stable, but now we need this as the logging is async
 	copied := make(map[string][]int32)
 	for k, v := range unoccupiedTopicPartitions {
 		copied[k] = v
@@ -178,8 +180,8 @@ func (this *GoKafkaClientScheduler) createExecutorForTopicPartition(topic string
 		Name:       proto.String("Go Kafka Client Executor"),
 		Source:     proto.String("go-kafka"),
 		Command: &mesos.CommandInfo{
-			//TODO sudo chmod a+x is awful
-			Value: proto.String(fmt.Sprintf("sudo chmod a+x %s && ./%s --zookeeper %s --topic %s --partition %d", this.Config.ExecutorBinaryName, this.Config.ExecutorBinaryName, strings.Join(this.Config.Zookeeper, ","), topic, partition)),
+			//TODO chmod a+x is awful
+			Value: proto.String(fmt.Sprintf("chmod a+x %s && ./%s --zookeeper %s --group %s --topic %s --partition %d", this.Config.ExecutorBinaryName, this.Config.ExecutorBinaryName, strings.Join(this.Config.Zookeeper, ","), this.Config.GroupId, topic, partition)),
 			Uris:  []*mesos.CommandInfo_URI{&mesos.CommandInfo_URI{
 				//TODO fix master url
 				Value: proto.String(fmt.Sprintf("http://master:%d/executor", this.Config.ArtifactServerPort)),

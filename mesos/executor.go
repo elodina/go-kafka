@@ -13,16 +13,19 @@ type GoKafkaClientExecutor struct {
 	topic          string
 	partition      int32
 	zookeeper      []string
+	group          string
 	consumers map[string]*kafka.Consumer
 }
 
-func NewGoKafkaClientExecutor(zookeeper []string, topic string, partition int32) *GoKafkaClientExecutor {
+//TODO maybe replace with ExecutorConfig?
+func NewGoKafkaClientExecutor(zookeeper []string, group string, topic string, partition int32) *GoKafkaClientExecutor {
 	kafka.Logger = kafka.NewDefaultLogger(kafka.DebugLevel)
 
 	return &GoKafkaClientExecutor{
 		topic: topic,
 		partition: partition,
 		zookeeper: zookeeper,
+		group: group,
 		consumers: make(map[string]*kafka.Consumer),
 	}
 }
@@ -57,7 +60,7 @@ func (this *GoKafkaClientExecutor) LaunchTask(driver executor.ExecutorDriver, ta
 
 	taskId := taskInfo.GetTaskId().GetValue()
 
-	consumer := GetConsumer(this.zookeeper)
+	consumer := this.createNewConsumer()
 	if oldConsumer, exists := this.consumers[taskId]; exists {
 		<-oldConsumer.Close()
 	}
@@ -108,4 +111,19 @@ func (this *GoKafkaClientExecutor) Shutdown(executor.ExecutorDriver) {
 
 func (this *GoKafkaClientExecutor) Error(driver executor.ExecutorDriver, err string) {
 	kafka.Errorf(this, "Got error message: %s", err)
+}
+
+func (this *GoKafkaClientExecutor) createNewConsumer() *kafka.Consumer {
+	config := kafka.DefaultConsumerConfig()
+	//TODO make ZookeeperCoordinator.config visible outside, so we can let user set his ZK settings AND still replace connection URLs
+	SetupConsumerConfig(config)
+
+	config.Groupid = this.group
+	zkConfig := kafka.NewZookeeperConfig()
+	zkConfig.ZookeeperConnect = this.zookeeper
+
+	config.Coordinator = kafka.NewZookeeperCoordinator(zkConfig)
+
+
+	return kafka.NewConsumer(config)
 }
