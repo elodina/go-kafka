@@ -71,7 +71,7 @@ func main() {
 	schedulerConfig.Zookeeper = strings.Split(*zookeeper, ",")
 	schedulerConfig.ExecutorBinaryName = *executorBinaryName
 	schedulerConfig.ArtifactServerPort = *artifactServerPort
-	consumerScheduler, err := mesos.NewScheduler(schedulerConfig)
+	consumerScheduler, err := mesos.NewGoKafkaClientScheduler(schedulerConfig)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)

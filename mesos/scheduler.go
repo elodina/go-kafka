@@ -26,14 +26,14 @@ func NewSchedulerConfig() *SchedulerConfig {
 	}
 }
 
-type Scheduler struct {
+type GoKafkaClientScheduler struct {
 	Config *SchedulerConfig
 
 	zookeeper *kafka.ZookeeperCoordinator
 	consumerMap map[string]map[int32]*mesos.TaskID
 }
 
-func NewScheduler(config *SchedulerConfig) (*Scheduler, error) {
+func NewGoKafkaClientScheduler(config *SchedulerConfig) (*GoKafkaClientScheduler, error) {
 	zkConfig := kafka.NewZookeeperConfig()
 	zkConfig.ZookeeperConnect = config.Zookeeper
 	zookeeper := kafka.NewZookeeperCoordinator(zkConfig)
@@ -41,59 +41,46 @@ func NewScheduler(config *SchedulerConfig) (*Scheduler, error) {
 		return nil, err
 	}
 
-	return &Scheduler{
+	return &GoKafkaClientScheduler{
 		Config: config,
 		zookeeper: zookeeper,
 		consumerMap: make(map[string]map[int32]*mesos.TaskID),
 	}, nil
 }
 
-func (this *Scheduler) String() string {
+func (this *GoKafkaClientScheduler) String() string {
 	return "Go Kafka Client Scheduler"
 }
 
-func (this *Scheduler) Registered(driver scheduler.SchedulerDriver, frameworkId *mesos.FrameworkID, masterInfo *mesos.MasterInfo) {
+func (this *GoKafkaClientScheduler) Registered(driver scheduler.SchedulerDriver, frameworkId *mesos.FrameworkID, masterInfo *mesos.MasterInfo) {
 	kafka.Infof(this, "Framework Registered with Master %s", masterInfo)
 }
 
-func (this *Scheduler) Reregistered(driver scheduler.SchedulerDriver, masterInfo *mesos.MasterInfo) {
+func (this *GoKafkaClientScheduler) Reregistered(driver scheduler.SchedulerDriver, masterInfo *mesos.MasterInfo) {
 	kafka.Infof(this, "Framework Re-Registered with Master %s", masterInfo)
 }
 
-func (this *Scheduler) Disconnected(scheduler.SchedulerDriver) {
+func (this *GoKafkaClientScheduler) Disconnected(scheduler.SchedulerDriver) {
 	kafka.Info(this, "Disconnected")
 }
 
-func (this *Scheduler) ResourceOffers(driver scheduler.SchedulerDriver, offers []*mesos.Offer) {
+func (this *GoKafkaClientScheduler) ResourceOffers(driver scheduler.SchedulerDriver, offers []*mesos.Offer) {
 	kafka.Debugf(this, "Received offers: %s", offers)
 	topicPartitions, err := this.getUnoccupiedTopicPartitions()
 	if err != nil {
 		kafka.Errorf(this, "Could not get topic-partitions to consume: %s", err)
+		this.declineOffers(driver, offers)
 		return
 	}
 	if len(topicPartitions) == 0 {
 		kafka.Debugf(this, "There are no unoccupied topic-partitions, no need to start new consumers.")
+		this.declineOffers(driver, offers)
 		return
 	}
 
 	for _, offer := range offers {
-		cpus := 0.0
-		mems := 0.0
-
-		cpuResources := util.FilterResources(offer.Resources, func(res *mesos.Resource) bool {
-				return res.GetName() == "cpus"
-			})
-
-		for _, res := range cpuResources {
-			cpus += res.GetScalar().GetValue()
-		}
-
-		memResources := util.FilterResources(offer.Resources, func(res *mesos.Resource) bool {
-				return res.GetName() == "mem"
-			})
-		for _, res := range memResources {
-			mems += res.GetScalar().GetValue()
-		}
+		cpus := this.getScalarResources(offer, "cpus")
+		mems := this.getScalarResources(offer, "mem")
 
 		kafka.Debugf(this, "Received Offer <%s> with cpus=%f, mem=%f", offer.Id.GetValue(), cpus, mems)
 
@@ -130,27 +117,27 @@ func (this *Scheduler) ResourceOffers(driver scheduler.SchedulerDriver, offers [
 	}
 }
 
-func (this *Scheduler) StatusUpdate(driver scheduler.SchedulerDriver, status *mesos.TaskStatus) {
+func (this *GoKafkaClientScheduler) StatusUpdate(driver scheduler.SchedulerDriver, status *mesos.TaskStatus) {
 	kafka.Infof(this, "Status update: task %s is in state %s", status.TaskId.GetValue(), status.State.Enum().String())
 
-	if status.GetState() == mesos.TaskState_TASK_LOST || status.GetState() == mesos.TaskState_TASK_KILLED || status.GetState() == mesos.TaskState_TASK_FAILED {
+	if status.GetState() == mesos.TaskState_TASK_LOST || status.GetState() == mesos.TaskState_TASK_KILLED || status.GetState() == mesos.TaskState_TASK_FAILED || status.GetState() == mesos.TaskState_TASK_FINISHED {
 		this.removeConsumerForTopic(status.GetTaskId())
 	}
 }
 
-func (this *Scheduler) OfferRescinded(scheduler.SchedulerDriver, *mesos.OfferID) {}
+func (this *GoKafkaClientScheduler) OfferRescinded(scheduler.SchedulerDriver, *mesos.OfferID) {}
 
-func (this *Scheduler) FrameworkMessage(scheduler.SchedulerDriver, *mesos.ExecutorID, *mesos.SlaveID, string) {
+func (this *GoKafkaClientScheduler) FrameworkMessage(scheduler.SchedulerDriver, *mesos.ExecutorID, *mesos.SlaveID, string) {
 }
-func (this *Scheduler) SlaveLost(scheduler.SchedulerDriver, *mesos.SlaveID) {}
-func (this *Scheduler) ExecutorLost(scheduler.SchedulerDriver, *mesos.ExecutorID, *mesos.SlaveID, int) {
+func (this *GoKafkaClientScheduler) SlaveLost(scheduler.SchedulerDriver, *mesos.SlaveID) {}
+func (this *GoKafkaClientScheduler) ExecutorLost(scheduler.SchedulerDriver, *mesos.ExecutorID, *mesos.SlaveID, int) {
 }
 
-func (this *Scheduler) Error(driver scheduler.SchedulerDriver, err string) {
+func (this *GoKafkaClientScheduler) Error(driver scheduler.SchedulerDriver, err string) {
 	kafka.Errorf(this, "Scheduler received error: %s", err)
 }
 
-func (this *Scheduler) getUnoccupiedTopicPartitions() (map[string][]int32, error) {
+func (this *GoKafkaClientScheduler) getUnoccupiedTopicPartitions() (map[string][]int32, error) {
 	topics, err := this.zookeeper.GetAllTopics()
 	if err != nil {
 		return nil, err
@@ -185,7 +172,7 @@ func (this *Scheduler) getUnoccupiedTopicPartitions() (map[string][]int32, error
 	return unoccupiedTopicPartitions, nil
 }
 
-func (this *Scheduler) createExecutorForTopicPartition(topic string, partition int32) *mesos.ExecutorInfo {
+func (this *GoKafkaClientScheduler) createExecutorForTopicPartition(topic string, partition int32) *mesos.ExecutorInfo {
 	return &mesos.ExecutorInfo{
 		ExecutorId: util.NewExecutorID(fmt.Sprintf("kafka-%s-%d", topic, partition)),
 		Name:       proto.String("Go Kafka Client Executor"),
@@ -202,7 +189,7 @@ func (this *Scheduler) createExecutorForTopicPartition(topic string, partition i
 	}
 }
 
-func (this *Scheduler) takeTopicPartition(topicPartitions map[string][]int32) (string, int32) {
+func (this *GoKafkaClientScheduler) takeTopicPartition(topicPartitions map[string][]int32) (string, int32) {
 	for topic, partitions := range topicPartitions {
 		topicPartitions[topic] = partitions[1:]
 
@@ -216,7 +203,7 @@ func (this *Scheduler) takeTopicPartition(topicPartitions map[string][]int32) (s
 	panic("take on empty map")
 }
 
-func (this *Scheduler) addConsumerForTopic(topic string, partition int32, id *mesos.TaskID) {
+func (this *GoKafkaClientScheduler) addConsumerForTopic(topic string, partition int32, id *mesos.TaskID) {
 	consumersForTopic := this.consumerMap[topic]
 	if consumersForTopic == nil {
 		this.consumerMap[topic] = make(map[int32]*mesos.TaskID)
@@ -225,7 +212,7 @@ func (this *Scheduler) addConsumerForTopic(topic string, partition int32, id *me
 	consumersForTopic[partition] = id
 }
 
-func (this *Scheduler) removeConsumerForTopic(id *mesos.TaskID) {
+func (this *GoKafkaClientScheduler) removeConsumerForTopic(id *mesos.TaskID) {
 	for topic, partitions := range this.consumerMap {
 		for partition, taskId := range partitions {
 			if taskId.GetValue() == id.GetValue() {
@@ -236,4 +223,21 @@ func (this *Scheduler) removeConsumerForTopic(id *mesos.TaskID) {
 	}
 
 	kafka.Warn(this, "removeConsumerForTopic called for not existing TaskID")
+}
+
+func (this *GoKafkaClientScheduler) declineOffers(driver scheduler.SchedulerDriver, offers []*mesos.Offer) {
+	for _, offer := range offers {
+		driver.DeclineOffer(offer.Id, &mesos.Filters{RefuseSeconds: proto.Float64(1)})
+	}
+}
+
+func (this *GoKafkaClientScheduler) getScalarResources(offer *mesos.Offer, resourceName string) float64 {
+	resources := 0.0
+	filteredResources := util.FilterResources(offer.Resources, func(res *mesos.Resource) bool {
+			return res.GetName() == resourceName
+		})
+	for _, res := range filteredResources {
+		resources += res.GetScalar().GetValue()
+	}
+	return resources
 }
