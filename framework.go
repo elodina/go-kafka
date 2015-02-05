@@ -15,6 +15,7 @@ import (
 	"strings"
 )
 
+var artifactServerHost = flag.String("artifact.host", "master", "Binding host for artifact server.")
 var artifactServerPort = flag.Int("artifact.port", 6666, "Binding port for artifact server.")
 var master = flag.String("master", "127.0.0.1:5050", "Mesos Master address <ip:port>.")
 var cpuPerConsumer = flag.Float64("cpu.per.consumer", 1, "CPUs per consumer instance.")
@@ -49,7 +50,7 @@ func startArtifactServer() {
 	http.HandleFunc("/executor", func(w http.ResponseWriter, r *http.Request) {
 			http.ServeFile(w, r, *executorBinaryName)
 		})
-	http.ListenAndServe(fmt.Sprintf(":%d", *artifactServerPort), nil)
+	http.ListenAndServe(fmt.Sprintf("%s:%d", *artifactServerHost, *artifactServerPort), nil)
 }
 
 func main() {
@@ -77,6 +78,7 @@ func main() {
 	schedulerConfig.Zookeeper = strings.Split(*zookeeper, ",")
 	schedulerConfig.GroupId = *group
 	schedulerConfig.ExecutorBinaryName = *executorBinaryName
+	schedulerConfig.ArtifactServerHost = *artifactServerHost
 	schedulerConfig.ArtifactServerPort = *artifactServerPort
 	consumerScheduler, err := mesos.NewGoKafkaClientScheduler(schedulerConfig)
 	if err != nil {
