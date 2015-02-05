@@ -10,33 +10,20 @@ import (
 )
 
 type GoKafkaClientExecutor struct {
-	topic         string
-	partition     int32
-	consumer *kafka.Consumer
+	topic          string
+	partition      int32
+	zookeeper      []string
+	consumers map[string]*kafka.Consumer
 }
 
 func NewGoKafkaClientExecutor(zookeeper []string, topic string, partition int32) *GoKafkaClientExecutor {
 	kafka.Logger = kafka.NewDefaultLogger(kafka.DebugLevel)
-	zkConfig := kafka.NewZookeeperConfig()
-	zkConfig.ZookeeperConnect = zookeeper
-	config := kafka.DefaultConsumerConfig()
-	config.AutoOffsetReset = kafka.SmallestOffset
-	config.Coordinator = kafka.NewZookeeperCoordinator(zkConfig)
-	config.Strategy = func(_ *kafka.Worker, msg *kafka.Message, id kafka.TaskId) kafka.WorkerResult {
-		kafka.Debugf("Strategy", "Got message: %s\n", string(msg.Value))
-		return kafka.NewSuccessfulResult(id)
-	}
-	config.WorkerFailedAttemptCallback = func(_ *kafka.Task, _ kafka.WorkerResult) kafka.FailedDecision {
-		return kafka.CommitOffsetAndContinue
-	}
-	config.WorkerFailureCallback = func(_ *kafka.WorkerManager) kafka.FailedDecision {
-		return kafka.DoNotCommitOffsetAndStop
-	}
-	consumer := kafka.NewConsumer(config)
+
 	return &GoKafkaClientExecutor{
 		topic: topic,
 		partition: partition,
-		consumer: consumer,
+		zookeeper: zookeeper,
+		consumers: make(map[string]*kafka.Consumer),
 	}
 }
 
@@ -68,15 +55,22 @@ func (this *GoKafkaClientExecutor) LaunchTask(driver executor.ExecutorDriver, ta
 		kafka.Errorf(this, "Failed to send status update: %s", runStatus)
 	}
 
+	taskId := taskInfo.GetTaskId().GetValue()
+
+	consumer := GetConsumer(this.zookeeper)
+	if oldConsumer, exists := this.consumers[taskId]; exists {
+		<-oldConsumer.Close()
+	}
+	this.consumers[taskId] = consumer
 	//this is for test purposes
 	go func() {
 		kafka.Debug(this, "Started sleep routine")
 		time.Sleep(time.Duration(rand.Intn(20) + 20) * time.Second)
 		kafka.Debug(this, "Sleep finished, closing consumer")
-		<-this.consumer.Close()
+		<-consumer.Close()
 		kafka.Debug(this, "Close consumer finished")
 	}()
-	this.consumer.StartStaticPartitions(map[string][]int32 {this.topic : []int32{this.partition}})
+	consumer.StartStaticPartitions(map[string][]int32 {this.topic : []int32{this.partition}})
 
 	// finish task
 	kafka.Debugf(this, "Finishing task %s", taskInfo.GetName())
@@ -90,9 +84,18 @@ func (this *GoKafkaClientExecutor) LaunchTask(driver executor.ExecutorDriver, ta
 	kafka.Infof(this, "Task %s has finished", taskInfo.GetName())
 }
 
-//TODO implement
-func (this *GoKafkaClientExecutor) KillTask(executor.ExecutorDriver, *mesos.TaskID) {
+func (this *GoKafkaClientExecutor) KillTask(_ executor.ExecutorDriver, taskId *mesos.TaskID) {
 	kafka.Info(this, "Kill task")
+
+	consumer, exists := this.consumers[taskId.GetValue()]
+	if !exists {
+		kafka.Warn(this, "Got KillTask for unknown TaskID")
+		return
+	}
+	kafka.Debugf(this, "Closing consumer for TaskID %s", taskId.GetValue())
+	<-consumer.Close()
+	kafka.Debugf(this, "Closed consumer for TaskID %s", taskId.GetValue())
+	delete(this.consumers, taskId.GetValue())
 }
 
 func (this *GoKafkaClientExecutor) FrameworkMessage(driver executor.ExecutorDriver, msg string) {
