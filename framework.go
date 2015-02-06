@@ -20,7 +20,8 @@ var artifactServerPort = flag.Int("artifact.port", 6666, "Binding port for artif
 var master = flag.String("master", "127.0.0.1:5050", "Mesos Master address <ip:port>.")
 var cpuPerConsumer = flag.Float64("cpu.per.consumer", 1, "CPUs per consumer instance.")
 var memPerConsumer = flag.Float64("mem.per.consumer", 256, "Memory per consumer instance.")
-var executorBinaryName = flag.String("executor.name", "executor", "Executor binary name.")
+var executorArchiveName = flag.String("executor.archive", "executor.zip", "Executor archive name. Absolute or relative path are both ok.")
+var executorBinaryName = flag.String("executor.name", "executor", "Executor binary name contained in archive.")
 
 var zookeeper = flag.String("zookeeper", "", "Zookeeper connection string separated by comma.")
 var group = flag.String("group", "", "Consumer group name to start consumers in.")
@@ -47,8 +48,10 @@ func parseAndValidateSchedulerArgs() {
 }
 
 func startArtifactServer() {
-	http.HandleFunc("/executor", func(w http.ResponseWriter, r *http.Request) {
-			http.ServeFile(w, r, *executorBinaryName)
+	//if the full path is given, take the last token only
+	path := strings.Split(*executorArchiveName, "/")
+	http.HandleFunc(fmt.Sprintf("/%s", path[len(path)-1]), func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, *executorArchiveName)
 		})
 	http.ListenAndServe(fmt.Sprintf("%s:%d", *artifactServerHost, *artifactServerPort), nil)
 }
@@ -78,6 +81,7 @@ func main() {
 	schedulerConfig.Zookeeper = strings.Split(*zookeeper, ",")
 	schedulerConfig.GroupId = *group
 	schedulerConfig.ExecutorBinaryName = *executorBinaryName
+	schedulerConfig.ExecutorArchiveName = *executorArchiveName
 	schedulerConfig.ArtifactServerHost = *artifactServerHost
 	schedulerConfig.ArtifactServerPort = *artifactServerPort
 	consumerScheduler, err := mesos.NewGoKafkaClientScheduler(schedulerConfig)
