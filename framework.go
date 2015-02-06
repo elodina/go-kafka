@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"os/signal"
 )
 
 var artifactServerHost = flag.String("artifact.host", "master", "Binding host for artifact server.")
@@ -60,6 +61,9 @@ func main() {
 	parseAndValidateSchedulerArgs()
 	kafka.Logger = kafka.NewDefaultLogger(kafka.DebugLevel)
 
+	ctrlc := make(chan os.Signal, 1)
+	signal.Notify(ctrlc, os.Interrupt)
+
 	go startArtifactServer()
 
 	frameworkInfo := &mesosproto.FrameworkInfo{
@@ -90,8 +94,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	//TODO shutting the framework down should close all consumers gracefully
 	driver, err := scheduler.NewMesosSchedulerDriver(consumerScheduler, frameworkInfo, *master, nil)
+	go func() {
+		<-ctrlc
+		consumerScheduler.Shutdown(driver)
+		driver.Stop(false)
+	}()
 
 	if err != nil {
 		fmt.Println("Unable to create a SchedulerDriver ", err.Error())

@@ -20,12 +20,14 @@ type SchedulerConfig struct {
 	ArtifactServerPort int
 	ExecutorBinaryName string
 	ExecutorArchiveName string
+	KillTaskRetries int
 }
 
 func NewSchedulerConfig() *SchedulerConfig {
 	return &SchedulerConfig{
 		CpuPerTask: 0.2,
 		MemPerTask: 256,
+		KillTaskRetries: 3,
 	}
 }
 
@@ -123,7 +125,7 @@ func (this *GoKafkaClientScheduler) ResourceOffers(driver scheduler.SchedulerDri
 func (this *GoKafkaClientScheduler) StatusUpdate(driver scheduler.SchedulerDriver, status *mesos.TaskStatus) {
 	kafka.Infof(this, "Status update: task %s is in state %s", status.TaskId.GetValue(), status.State.Enum().String())
 
-	if status.GetState() == mesos.TaskState_TASK_LOST || status.GetState() == mesos.TaskState_TASK_KILLED || status.GetState() == mesos.TaskState_TASK_FAILED || status.GetState() == mesos.TaskState_TASK_FINISHED {
+	if status.GetState() == mesos.TaskState_TASK_LOST ||/* status.GetState() == mesos.TaskState_TASK_KILLED ||*/ status.GetState() == mesos.TaskState_TASK_FAILED || status.GetState() == mesos.TaskState_TASK_FINISHED {
 		this.removeConsumerForTopic(status.GetTaskId())
 	}
 }
@@ -138,6 +140,29 @@ func (this *GoKafkaClientScheduler) ExecutorLost(scheduler.SchedulerDriver, *mes
 
 func (this *GoKafkaClientScheduler) Error(driver scheduler.SchedulerDriver, err string) {
 	kafka.Errorf(this, "Scheduler received error: %s", err)
+}
+
+func (this *GoKafkaClientScheduler) Shutdown(driver scheduler.SchedulerDriver) {
+	kafka.Debug(this, "Shutting down scheduler.")
+	for topic, partitions := range this.consumerMap {
+		for partition, taskId := range partitions {
+			if err := this.tryKillTask(driver, taskId, topic, partition); err != nil {
+				kafka.Errorf(this, "Failed to kill task %s consuming topic %s and partition %d", taskId.GetValue(), topic, partition)
+			}
+		}
+	}
+}
+
+func (this *GoKafkaClientScheduler) tryKillTask(driver scheduler.SchedulerDriver, taskId *mesos.TaskID, topic string, partition int32) error {
+	kafka.Debugf(this, "Trying to kill task %s consuming topic %s and partition %d", taskId.GetValue(), topic, partition)
+
+	var err error
+	for i := 0; i <= this.Config.KillTaskRetries; i++ {
+		if _, err = driver.KillTask(taskId); err == nil {
+			return nil
+		}
+	}
+	return err
 }
 
 func (this *GoKafkaClientScheduler) getUnoccupiedTopicPartitions() (map[string][]int32, error) {

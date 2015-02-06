@@ -62,15 +62,15 @@
 		},
 		{
 			"ImportPath": "github.com/mesos/mesos-go/mesosproto",
-			"Rev": "10a3c9c44c40fe4345b6f2fdd2d0f42f2819713d"
+			"Rev": "594c291ed5cc6eb8ac7fa4870a45754f0d3133fa"
 		},
 		{
 			"ImportPath": "github.com/mesos/mesos-go/mesosutil",
-			"Rev": "10a3c9c44c40fe4345b6f2fdd2d0f42f2819713d"
+			"Rev": "594c291ed5cc6eb8ac7fa4870a45754f0d3133fa"
 		},
 		{
 			"ImportPath": "github.com/mesos/mesos-go/scheduler",
-			"Rev": "10a3c9c44c40fe4345b6f2fdd2d0f42f2819713d"
+			"Rev": "594c291ed5cc6eb8ac7fa4870a45754f0d3133fa"
 		},
 		{
 			"ImportPath": "github.com/golang/protobuf/proto",
