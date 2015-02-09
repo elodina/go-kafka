@@ -58,7 +58,7 @@
 		},
 		{
 			"ImportPath": "github.com/stealthly/go_kafka_client",
-			"Rev": "d1f55bf3eee40e58f26ef23a5006201542b73583"
+			"Rev": "bb1a8158af72934fe698efec702a5a28bae76034"
 		},
 		{
 			"ImportPath": "github.com/mesos/mesos-go/mesosproto",
