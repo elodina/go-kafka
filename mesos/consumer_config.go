@@ -21,3 +21,10 @@ func SetupConsumerConfig(config *kafka.ConsumerConfig) {
 		return kafka.DoNotCommitOffsetAndStop
 	}
 }
+
+// This function will be called each time the executor launches a new task.
+// This is a place where you set your Zookeeper settings.
+// ZookeeperConnect setting will be overridden after this, so no need to set it.
+func SetupZookeeperConfig(config *kafka.ZookeeperConfig) {
+	config.MaxRequestRetries = 5
+}

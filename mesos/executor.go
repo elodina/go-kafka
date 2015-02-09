@@ -125,15 +125,14 @@ func (this *GoKafkaClientExecutor) closeConsumer(taskId string) {
 
 func (this *GoKafkaClientExecutor) createNewConsumer() *kafka.Consumer {
 	config := kafka.DefaultConsumerConfig()
-	//TODO make ZookeeperCoordinator.config visible outside, so we can let user set his ZK settings AND still replace connection URLs
 	SetupConsumerConfig(config)
-
 	config.Groupid = this.Config.Group
+
 	zkConfig := kafka.NewZookeeperConfig()
+	SetupZookeeperConfig(zkConfig)
 	zkConfig.ZookeeperConnect = this.Config.Zookeeper
 
 	config.Coordinator = kafka.NewZookeeperCoordinator(zkConfig)
-
 
 	return kafka.NewConsumer(config)
 }
