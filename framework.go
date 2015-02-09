@@ -28,6 +28,8 @@ var zookeeper = flag.String("zookeeper", "", "Zookeeper connection string separa
 var group = flag.String("group", "", "Consumer group name to start consumers in.")
 var whitelist = flag.String("whitelist", "", "Whitelist of topics to consume.")
 var blacklist = flag.String("blacklist", "", "Blacklist of topics to consume.")
+var numConsumers = flag.Int("num.consumers", 1, "Number of consumers for non-static configuration.")
+var static = flag.Bool("static", true, "Flag to use static partition configuration. Defaults to true. <num.consumers> is ignored when set to true.")
 
 func parseAndValidateSchedulerArgs() {
 	flag.Parse()
@@ -71,14 +73,17 @@ func main() {
 		Name: proto.String("Go Kafka Client Framework"),
 	}
 
+	schedulerConfig := mesos.NewSchedulerConfig()
+
 	var filter kafka.TopicFilter
 	if *whitelist != "" {
+		schedulerConfig.Whitelist = *whitelist
 		filter = kafka.NewWhiteList(*whitelist)
 	} else {
+		schedulerConfig.Blacklist = *blacklist
 		filter = kafka.NewBlackList(*blacklist)
 	}
 
-	schedulerConfig := mesos.NewSchedulerConfig()
 	schedulerConfig.CpuPerTask = *cpuPerConsumer
 	schedulerConfig.MemPerTask = *memPerConsumer
 	schedulerConfig.Filter = filter
@@ -88,11 +93,18 @@ func main() {
 	schedulerConfig.ExecutorArchiveName = *executorArchiveName
 	schedulerConfig.ArtifactServerHost = *artifactServerHost
 	schedulerConfig.ArtifactServerPort = *artifactServerPort
-	consumerScheduler, err := mesos.NewGoKafkaClientScheduler(schedulerConfig)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+	var tracker mesos.ConsumerTracker
+	if *static {
+		track, err := mesos.NewStaticConsumerTracker(schedulerConfig)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		tracker = track
+	} else {
+		tracker = mesos.NewLoadBalancingConsumerTracker(schedulerConfig, *numConsumers)
 	}
+	consumerScheduler := mesos.NewGoKafkaClientScheduler(schedulerConfig, tracker)
 
 	driver, err := scheduler.NewMesosSchedulerDriver(consumerScheduler, frameworkInfo, *master, nil)
 	go func() {

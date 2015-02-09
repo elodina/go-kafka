@@ -10,6 +10,7 @@ import (
 type ExecutorConfig struct {
 	Topic string
 	Partition int32
+	Filter kafka.TopicFilter
 	Zookeeper []string
 	Group string
 }
@@ -68,7 +69,11 @@ func (this *GoKafkaClientExecutor) LaunchTask(driver executor.ExecutorDriver, ta
 	}
 	this.consumers[taskId] = consumer
 	go func() {
-		consumer.StartStaticPartitions(map[string][]int32 {this.Config.Topic : []int32{this.Config.Partition}})
+		if this.Config.Filter != nil {
+			consumer.StartWildcard(this.Config.Filter, 1)
+		} else {
+			consumer.StartStaticPartitions(map[string][]int32 {this.Config.Topic : []int32{this.Config.Partition}})
+		}
 
 		// finish task
 		kafka.Debugf(this, "Finishing task %s", taskInfo.GetName())
