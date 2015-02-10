@@ -118,9 +118,9 @@ func (this *GoKafkaClientExecutor) closeConsumer(taskId string) {
 	}
 
 	kafka.Debugf(this, "Closing consumer for TaskID %s", taskId)
+	delete(this.consumers, taskId)
 	<-consumer.Close()
 	kafka.Debugf(this, "Closed consumer for TaskID %s", taskId)
-	delete(this.consumers, taskId)
 }
 
 func (this *GoKafkaClientExecutor) createNewConsumer() *kafka.Consumer {
