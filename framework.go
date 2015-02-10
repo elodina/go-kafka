@@ -77,10 +77,8 @@ func main() {
 
 	var filter kafka.TopicFilter
 	if *whitelist != "" {
-		schedulerConfig.Whitelist = *whitelist
 		filter = kafka.NewWhiteList(*whitelist)
 	} else {
-		schedulerConfig.Blacklist = *blacklist
 		filter = kafka.NewBlackList(*blacklist)
 	}
 

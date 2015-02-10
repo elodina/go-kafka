@@ -10,9 +10,6 @@ import (
 type SchedulerConfig struct {
 	CpuPerTask          float64
 	MemPerTask          float64
-	//TODO make Filter.regex() visible in go_kafka_client instead of having whitelist and blacklist fields
-	Whitelist           string
-	Blacklist           string
 	Filter              kafka.TopicFilter
 	Zookeeper           []string
 	GroupId             string
@@ -62,7 +59,7 @@ func (this *GoKafkaClientScheduler) Disconnected(scheduler.SchedulerDriver) {
 }
 
 func (this *GoKafkaClientScheduler) ResourceOffers(driver scheduler.SchedulerDriver, offers []*mesos.Offer) {
-	kafka.Debugf(this, "Received offers: %s", offers)
+	kafka.Tracef(this, "Received offers: %s", offers)
 
 	for _, offer := range offers {
 		tasks := this.Tracker.CreateTasks(offer)

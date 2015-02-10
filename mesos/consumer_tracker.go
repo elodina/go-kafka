@@ -279,11 +279,10 @@ func (this *LoadBalancingConsumerTracker) getFreeId() int {
 
 func (this *LoadBalancingConsumerTracker) createExecutor(id int) *mesos.ExecutorInfo {
 	path := strings.Split(this.Config.ExecutorArchiveName, "/")
-	var command string
-	if this.Config.Whitelist != "" {
-		command = fmt.Sprintf("./%s --zookeeper %s --group %s --whitelist %s", this.Config.ExecutorBinaryName, strings.Join(this.Config.Zookeeper, ","), this.Config.GroupId, this.Config.Whitelist)
-	} else {
-		command = fmt.Sprintf("./%s --zookeeper %s --group %s --blacklist %s", this.Config.ExecutorBinaryName, strings.Join(this.Config.Zookeeper, ","), this.Config.GroupId, this.Config.Blacklist)
+	command := fmt.Sprintf("./%s --zookeeper %s --group %s", this.Config.ExecutorBinaryName, strings.Join(this.Config.Zookeeper, ","), this.Config.GroupId)
+	switch this.Config.Filter.(type) {
+	case *kafka.WhiteList: command = fmt.Sprintf("%s --whitelist %s", command, this.Config.Filter.Regex())
+	case *kafka.BlackList: command = fmt.Sprintf("%s --blacklist %s", command, this.Config.Filter.Regex())
 	}
 	return &mesos.ExecutorInfo{
 		ExecutorId: util.NewExecutorID(fmt.Sprintf("kafka-%d", id)),
