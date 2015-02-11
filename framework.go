@@ -1,5 +1,20 @@
 // +build scheduler
 
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+contributor license agreements.  See the NOTICE file distributed with
+this work for additional information regarding copyright ownership.
+The ASF licenses this file to You under the Apache License, Version 2.0
+(the "License"); you may not use this file except in compliance with
+the License.  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License. */
+
 package main
 
 import (
@@ -31,6 +46,8 @@ var blacklist = flag.String("blacklist", "", "Blacklist of topics to consume.")
 var numConsumers = flag.Int("num.consumers", 1, "Number of consumers for non-static configuration.")
 var static = flag.Bool("static", true, "Flag to use static partition configuration. Defaults to true. <num.consumers> is ignored when set to true.")
 
+var logLevel = flag.String("log.level", "info", "Log level for built-in logger.")
+
 func parseAndValidateSchedulerArgs() {
 	flag.Parse()
 
@@ -50,6 +67,30 @@ func parseAndValidateSchedulerArgs() {
 	}
 }
 
+func setLogLevel() {
+	var level kafka.LogLevel
+	switch strings.ToLower(*logLevel) {
+	case "trace":
+		level = kafka.TraceLevel
+	case "debug":
+		level = kafka.DebugLevel
+	case "info":
+		level = kafka.InfoLevel
+	case "warn":
+		level = kafka.WarnLevel
+	case "error":
+		level = kafka.ErrorLevel
+	case "critical":
+		level = kafka.CriticalLevel
+	default:
+	{
+		fmt.Printf("Invalid log level: %s\n", *logLevel)
+		os.Exit(1)
+	}
+	}
+	kafka.Logger = kafka.NewDefaultLogger(level)
+}
+
 func startArtifactServer() {
 	//if the full path is given, take the last token only
 	path := strings.Split(*executorArchiveName, "/")
@@ -61,7 +102,7 @@ func startArtifactServer() {
 
 func main() {
 	parseAndValidateSchedulerArgs()
-	kafka.Logger = kafka.NewDefaultLogger(kafka.DebugLevel)
+	setLogLevel()
 
 	ctrlc := make(chan os.Signal, 1)
 	signal.Notify(ctrlc, os.Interrupt)
@@ -91,6 +132,7 @@ func main() {
 	schedulerConfig.ExecutorArchiveName = *executorArchiveName
 	schedulerConfig.ArtifactServerHost = *artifactServerHost
 	schedulerConfig.ArtifactServerPort = *artifactServerPort
+	schedulerConfig.LogLevel = *logLevel
 	var tracker mesos.ConsumerTracker
 	if *static {
 		track, err := mesos.NewStaticConsumerTracker(schedulerConfig)

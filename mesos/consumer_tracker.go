@@ -1,3 +1,18 @@
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+contributor license agreements.  See the NOTICE file distributed with
+this work for additional information regarding copyright ownership.
+The ASF licenses this file to You under the Apache License, Version 2.0
+(the "License"); you may not use this file except in compliance with
+the License.  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License. */
+
 package mesos
 
 import (
@@ -9,18 +24,32 @@ import (
 	"strings"
 )
 
+// ConsumerTracker is responsible of keeping track of running tasks and making decisions on whether it should launch new tasks using given resource offers.
 type ConsumerTracker interface {
+	// CreateTasks is called each time the scheduler receives a resource offer.
+	// Must return a slice of tasks to launch based on given offer or nil if no new tasks should be launched.
 	CreateTasks(*mesos.Offer) []*mesos.TaskInfo
+
+	// TaskDied is called each time the task is lost, failed or finished giving the ConsumerTracker a chance to launch it on next resource offer.
 	TaskDied(*mesos.TaskID)
+
+	// Returns all running tasks. For now used only to kill them all.
 	GetAllTasks() []*mesos.TaskID
 }
 
+// StaticConsumerTracker is a ConsumerTracker implementation that creates tasks with static partition configuration.
+// The number of tasks created is determined as number of total partitions to consume,
+// e.g. if the whitelist matches 2 topics with 5 partitions each, 10 tasks will be created (assuming enough resources have been offered).
 type StaticConsumerTracker struct {
+	// Configuration options for the tracker.
 	Config *SchedulerConfig
 	zookeeper *kafka.ZookeeperCoordinator
 	consumerMap map[string]map[int32]*mesos.TaskID
 }
 
+// Creates a new StaticConsumerTracker with a given scheduler config.
+// As this ConsumerTracker implementation has to know the exact number of partitions matching by the topic filter,
+// the ZookeeperCoordinator is used under the hood. Hence an error can be returned if the tracker fails to reach Zookeeper.
 func NewStaticConsumerTracker(config *SchedulerConfig) (*StaticConsumerTracker, error) {
 	zkConfig := kafka.NewZookeeperConfig()
 	zkConfig.ZookeeperConnect = config.Zookeeper
@@ -36,10 +65,13 @@ func NewStaticConsumerTracker(config *SchedulerConfig) (*StaticConsumerTracker, 
 	}, nil
 }
 
+// Returns a string represntation of StaticConsumerTracker.
 func (this *StaticConsumerTracker) String() string {
 	return "StaticConsumerTracker"
 }
 
+// CreateTasks is called each time the scheduler receives a resource offer.
+// Returns a slice of tasks to launch based on given offer or nil if no new tasks should be launched.
 func (this *StaticConsumerTracker) CreateTasks(offer *mesos.Offer) []*mesos.TaskInfo {
 	topicPartitions, err := this.getUnoccupiedTopicPartitions()
 	if err != nil {
@@ -88,6 +120,7 @@ func (this *StaticConsumerTracker) CreateTasks(offer *mesos.Offer) []*mesos.Task
 	return tasks
 }
 
+// TaskDied is called each time the task is lost, failed or finished giving the StaticConsumerTracker a chance to launch it on next resource offer.
 func (this *StaticConsumerTracker) TaskDied(id *mesos.TaskID) {
 	for topic, partitions := range this.consumerMap {
 		for partition, taskId := range partitions {
@@ -101,6 +134,7 @@ func (this *StaticConsumerTracker) TaskDied(id *mesos.TaskID) {
 	kafka.Warn(this, "TaskDied called for not existing TaskID")
 }
 
+// Returns all running tasks. For now used only to kill them all.
 func (this *StaticConsumerTracker) GetAllTasks() []*mesos.TaskID {
 	ids := make([]*mesos.TaskID, 0)
 
@@ -179,7 +213,7 @@ func (this *StaticConsumerTracker) createExecutorForTopicPartition(topic string,
 		Name:       proto.String("Go Kafka Client Executor"),
 		Source:     proto.String("go-kafka"),
 		Command: &mesos.CommandInfo{
-			Value: proto.String(fmt.Sprintf("./%s --zookeeper %s --group %s --topic %s --partition %d", this.Config.ExecutorBinaryName, strings.Join(this.Config.Zookeeper, ","), this.Config.GroupId, topic, partition)),
+			Value: proto.String(fmt.Sprintf("./%s --zookeeper %s --group %s --topic %s --partition %d --log.level %s", this.Config.ExecutorBinaryName, strings.Join(this.Config.Zookeeper, ","), this.Config.GroupId, topic, partition, this.Config.LogLevel)),
 			Uris:  []*mesos.CommandInfo_URI{&mesos.CommandInfo_URI{
 				Value: proto.String(fmt.Sprintf("http://%s:%d/%s", this.Config.ArtifactServerHost, this.Config.ArtifactServerPort, path[len(path)-1])),
 				Extract: proto.Bool(true),
@@ -188,13 +222,19 @@ func (this *StaticConsumerTracker) createExecutorForTopicPartition(topic string,
 	}
 }
 
+// LoadBalancingConsumerTracker is a ConsumerTracker implementation that creates tasks with load balancing configuration.
+// The number of tasks created is determined as NumConsumers parameter.
 type LoadBalancingConsumerTracker struct {
+	// Configuration options for the tracker.
 	Config *SchedulerConfig
+
+	// Target number of consumers to be running.
 	NumConsumers int
 	aliveConsumers int
 	consumerMap map[int]*mesos.TaskID
 }
 
+// Creates a new LoadBalancingConsumerTracker with a given scheduler config and target number of consumers.
 func NewLoadBalancingConsumerTracker(config *SchedulerConfig, numConsumers int) *LoadBalancingConsumerTracker {
 	return &LoadBalancingConsumerTracker{
 		Config: config,
@@ -203,10 +243,13 @@ func NewLoadBalancingConsumerTracker(config *SchedulerConfig, numConsumers int) 
 	}
 }
 
+// Returns a string represntation of LoadBalancingConsumerTracker.
 func (this *LoadBalancingConsumerTracker) String() string {
 	return "LoadBalancingConsumerTracker"
 }
 
+// CreateTasks is called each time the scheduler receives a resource offer.
+// Returns a slice of tasks to launch based on given offer or nil if no new tasks should be launched.
 func (this *LoadBalancingConsumerTracker) CreateTasks(offer *mesos.Offer) []*mesos.TaskInfo {
 	cpus := getScalarResources(offer, "cpus")
 	mems := getScalarResources(offer, "mem")
@@ -246,6 +289,7 @@ func (this *LoadBalancingConsumerTracker) CreateTasks(offer *mesos.Offer) []*mes
 	return tasks
 }
 
+// TaskDied is called each time the task is lost, failed or finished giving the LoadBalancingConsumerTracker a chance to launch it on next resource offer.
 func (this *LoadBalancingConsumerTracker) TaskDied(diedId *mesos.TaskID) {
 	for id, taskId := range this.consumerMap {
 		if taskId.GetValue() == diedId.GetValue() {
@@ -257,6 +301,7 @@ func (this *LoadBalancingConsumerTracker) TaskDied(diedId *mesos.TaskID) {
 	kafka.Warn(this, "TaskDied called for not existing TaskID")
 }
 
+// Returns all running tasks. For now used only to kill them all.
 func (this *LoadBalancingConsumerTracker) GetAllTasks() []*mesos.TaskID {
 	ids := make([]*mesos.TaskID, 0)
 
@@ -279,7 +324,7 @@ func (this *LoadBalancingConsumerTracker) getFreeId() int {
 
 func (this *LoadBalancingConsumerTracker) createExecutor(id int) *mesos.ExecutorInfo {
 	path := strings.Split(this.Config.ExecutorArchiveName, "/")
-	command := fmt.Sprintf("./%s --zookeeper %s --group %s", this.Config.ExecutorBinaryName, strings.Join(this.Config.Zookeeper, ","), this.Config.GroupId)
+	command := fmt.Sprintf("./%s --zookeeper %s --group %s --log.level %s", this.Config.ExecutorBinaryName, strings.Join(this.Config.Zookeeper, ","), this.Config.GroupId, this.Config.LogLevel)
 	switch this.Config.Filter.(type) {
 	case *kafka.WhiteList: command = fmt.Sprintf("%s --whitelist %s", command, this.Config.Filter.Regex())
 	case *kafka.BlackList: command = fmt.Sprintf("%s --blacklist %s", command, this.Config.Filter.Regex())
