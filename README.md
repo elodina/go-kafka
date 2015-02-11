@@ -54,6 +54,25 @@ $ cd <framework-location>
 $ ./framework --master master:5050 --zookeeper master:2181 --group mesos-group-1 --whitelist="^mesos-topic$" --static=false --num.consumers 2
 ```
 
+*List of available flags:*
+
+```
+--artifact.host="master": Binding host for artifact server.
+--artifact.port=6666: Binding port for artifact server.
+--blacklist="": Blacklist of topics to consume.
+--cpu.per.consumer=1: CPUs per consumer instance.
+--executor.archive="executor.zip": Executor archive name. Absolute or relative path are both ok.
+--executor.name="executor": Executor binary name contained in archive.
+--group="": Consumer group name to start consumers in.
+--log.level="info": Log level for built-in logger.
+--master="127.0.0.1:5050": Mesos Master address <ip:port>.
+--mem.per.consumer=256: Memory per consumer instance.
+--num.consumers=1: Number of consumers for non-static configuration.
+--static=true: Flag to use static partition configuration. Defaults to true. <num.consumers> is ignored when set to true.
+--whitelist="": Whitelist of topics to consume.
+--zookeeper="": Zookeeper connection string separated by comma.
+```
+
 Other Mesos unrelated stuff
 ==========================
 

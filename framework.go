@@ -53,16 +53,19 @@ func parseAndValidateSchedulerArgs() {
 
 	if *zookeeper == "" {
 		fmt.Println("Zookeeper connection string is required.")
+		flag.Usage()
 		os.Exit(1)
 	}
 
 	if *group == "" {
 		fmt.Println("Consumer group name is required.")
+		flag.Usage()
 		os.Exit(1)
 	}
 
 	if *whitelist == "" && *blacklist == "" {
 		fmt.Println("Whitelist or blacklist of topics to consume is required.")
+		flag.Usage()
 		os.Exit(1)
 	}
 }
