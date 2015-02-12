@@ -27,8 +27,9 @@ import (
 // ConsumerTracker is responsible of keeping track of running tasks and making decisions on whether it should launch new tasks using given resource offers.
 type ConsumerTracker interface {
 	// CreateTasks is called each time the scheduler receives a resource offer.
-	// Must return a slice of tasks to launch based on given offer or nil if no new tasks should be launched.
-	CreateTasks(*mesos.Offer) []*mesos.TaskInfo
+	// Must return a map where keys are resource offers and values are slices of tasks to launch for a corresponding offer.
+	// If no tasks should be launched for an offer the key may be omitted at all or contain a nil value.
+	CreateTasks([]*mesos.Offer) map[*mesos.Offer][]*mesos.TaskInfo
 
 	// TaskDied is called each time the task is lost, failed or finished giving the ConsumerTracker a chance to launch it on next resource offer.
 	TaskDied(*mesos.TaskID)
@@ -71,8 +72,8 @@ func (this *StaticConsumerTracker) String() string {
 }
 
 // CreateTasks is called each time the scheduler receives a resource offer.
-// Returns a slice of tasks to launch based on given offer or nil if no new tasks should be launched.
-func (this *StaticConsumerTracker) CreateTasks(offer *mesos.Offer) []*mesos.TaskInfo {
+// Returns a map where keys are resource offers and values are slices of tasks to launch for a corresponding offer.
+func (this *StaticConsumerTracker) CreateTasks(offers []*mesos.Offer) map[*mesos.Offer][]*mesos.TaskInfo {
 	topicPartitions, err := this.getUnoccupiedTopicPartitions()
 	if err != nil {
 		kafka.Errorf(this, "Could not get topic-partitions to consume: %s", err)
@@ -83,41 +84,53 @@ func (this *StaticConsumerTracker) CreateTasks(offer *mesos.Offer) []*mesos.Task
 		return nil
 	}
 
-	cpus := getScalarResources(offer, "cpus")
-	mems := getScalarResources(offer, "mem")
+	offersAndTasks := make(map[*mesos.Offer][]*mesos.TaskInfo)
+	for _, offer := range offers {
+		cpus := getScalarResources(offer, "cpus")
+		mems := getScalarResources(offer, "mem")
 
-	kafka.Debugf(this, "Received Offer <%s> with cpus=%f, mem=%f", offer.Id.GetValue(), cpus, mems)
+		kafka.Debugf(this, "Received Offer <%s> with cpus=%f, mem=%f", offer.Id.GetValue(), cpus, mems)
 
-	remainingCpus := cpus
-	remainingMems := mems
+		remainingCpus := cpus
+		remainingMems := mems
 
-	var tasks []*mesos.TaskInfo
-	for len(topicPartitions) > 0 && this.Config.CpuPerTask <= remainingCpus && this.Config.MemPerTask <= remainingMems {
-		topic, partition := this.takeTopicPartition(topicPartitions)
-		taskId := &mesos.TaskID {
-			Value: proto.String(fmt.Sprintf("%s-%d", topic, partition)),
+		var tasks []*mesos.TaskInfo
+		for len(topicPartitions) > 0 && this.Config.CpuPerTask <= remainingCpus && this.Config.MemPerTask <= remainingMems {
+			topic, partition := this.takeTopicPartition(topicPartitions)
+			taskId := &mesos.TaskID {
+				Value: proto.String(fmt.Sprintf("%s-%d", topic, partition)),
+			}
+
+			task := &mesos.TaskInfo{
+				Name:     proto.String(taskId.GetValue()),
+				TaskId:   taskId,
+				SlaveId:  offer.SlaveId,
+				Executor: this.createExecutorForTopicPartition(topic, partition),
+				Resources: []*mesos.Resource{
+					util.NewScalarResource("cpus", float64(this.Config.CpuPerTask)),
+					util.NewScalarResource("mem", float64(this.Config.MemPerTask)),
+				},
+			}
+			kafka.Debugf(this, "Prepared task: %s with offer %s for launch", task.GetName(), offer.Id.GetValue())
+
+			tasks = append(tasks, task)
+			remainingCpus -= this.Config.CpuPerTask
+			remainingMems -= this.Config.MemPerTask
+
+			this.addConsumerForTopic(topic, partition, taskId)
 		}
-
-		task := &mesos.TaskInfo{
-			Name:     proto.String(taskId.GetValue()),
-			TaskId:   taskId,
-			SlaveId:  offer.SlaveId,
-			Executor: this.createExecutorForTopicPartition(topic, partition),
-			Resources: []*mesos.Resource{
-				util.NewScalarResource("cpus", float64(this.Config.CpuPerTask)),
-				util.NewScalarResource("mem", float64(this.Config.MemPerTask)),
-			},
-		}
-		kafka.Debugf(this, "Prepared task: %s with offer %s for launch", task.GetName(), offer.Id.GetValue())
-
-		tasks = append(tasks, task)
-		remainingCpus -= this.Config.CpuPerTask
-		remainingMems -= this.Config.MemPerTask
-
-		this.addConsumerForTopic(topic, partition, taskId)
+		kafka.Debugf(this, "Launching %d tasks for offer %s", len(tasks), offer.Id.GetValue())
+		offersAndTasks[offer] = tasks
 	}
-	kafka.Debugf(this, "Launching %d tasks for offer %s", len(tasks), offer.Id.GetValue())
-	return tasks
+	//if we still have unoccupied topic-partitions and lack resources - inform the user about this
+	if len(topicPartitions) > 0 {
+		partitionsCount := 0
+		for _, partitions := range topicPartitions {
+			partitionsCount += len(partitions)
+		}
+		kafka.Warnf(this, "There are still %d partitions unoccupied and no more resources are available. Maybe add some more computing power?", partitionsCount)
+	}
+	return offersAndTasks
 }
 
 // TaskDied is called each time the task is lost, failed or finished giving the StaticConsumerTracker a chance to launch it on next resource offer.
@@ -249,44 +262,53 @@ func (this *LoadBalancingConsumerTracker) String() string {
 }
 
 // CreateTasks is called each time the scheduler receives a resource offer.
-// Returns a slice of tasks to launch based on given offer or nil if no new tasks should be launched.
-func (this *LoadBalancingConsumerTracker) CreateTasks(offer *mesos.Offer) []*mesos.TaskInfo {
-	cpus := getScalarResources(offer, "cpus")
-	mems := getScalarResources(offer, "mem")
+// Returns a map where keys are resource offers and values are slices of tasks to launch for a corresponding offer.
+func (this *LoadBalancingConsumerTracker) CreateTasks(offers []*mesos.Offer) map[*mesos.Offer][]*mesos.TaskInfo {
+	offersAndTasks := make(map[*mesos.Offer][]*mesos.TaskInfo)
+	for _, offer := range offers {
+		cpus := getScalarResources(offer, "cpus")
+		mems := getScalarResources(offer, "mem")
 
-	kafka.Debugf(this, "Received Offer <%s> with cpus=%f, mem=%f", offer.Id.GetValue(), cpus, mems)
+		kafka.Debugf(this, "Received Offer <%s> with cpus=%f, mem=%f", offer.Id.GetValue(), cpus, mems)
 
-	remainingCpus := cpus
-	remainingMems := mems
+		remainingCpus := cpus
+		remainingMems := mems
 
-	var tasks []*mesos.TaskInfo
-	id := this.getFreeId()
-	for id > -1 && this.Config.CpuPerTask <= remainingCpus && this.Config.MemPerTask <= remainingMems {
-		taskId := &mesos.TaskID {
-			Value: proto.String(fmt.Sprintf("go-kafka-%d", id)),
+		var tasks []*mesos.TaskInfo
+		id := this.getFreeId()
+		for id > -1 && this.Config.CpuPerTask <= remainingCpus && this.Config.MemPerTask <= remainingMems {
+			taskId := &mesos.TaskID {
+				Value: proto.String(fmt.Sprintf("go-kafka-%d", id)),
+			}
+
+			task := &mesos.TaskInfo{
+				Name:     proto.String(taskId.GetValue()),
+				TaskId:   taskId,
+				SlaveId:  offer.SlaveId,
+				Executor: this.createExecutor(id),
+				Resources: []*mesos.Resource{
+					util.NewScalarResource("cpus", float64(this.Config.CpuPerTask)),
+					util.NewScalarResource("mem", float64(this.Config.MemPerTask)),
+				},
+			}
+			kafka.Debugf(this, "Prepared task: %s with offer %s for launch", task.GetName(), offer.Id.GetValue())
+
+			tasks = append(tasks, task)
+			remainingCpus -= this.Config.CpuPerTask
+			remainingMems -= this.Config.MemPerTask
+
+			this.consumerMap[id] = taskId
+			id = this.getFreeId()
 		}
-
-		task := &mesos.TaskInfo{
-			Name:     proto.String(taskId.GetValue()),
-			TaskId:   taskId,
-			SlaveId:  offer.SlaveId,
-			Executor: this.createExecutor(id),
-			Resources: []*mesos.Resource{
-				util.NewScalarResource("cpus", float64(this.Config.CpuPerTask)),
-				util.NewScalarResource("mem", float64(this.Config.MemPerTask)),
-			},
-		}
-		kafka.Debugf(this, "Prepared task: %s with offer %s for launch", task.GetName(), offer.Id.GetValue())
-
-		tasks = append(tasks, task)
-		remainingCpus -= this.Config.CpuPerTask
-		remainingMems -= this.Config.MemPerTask
-
-		this.consumerMap[id] = taskId
-		id = this.getFreeId()
+		kafka.Debugf(this, "Launching %d tasks for offer %s", len(tasks), offer.Id.GetValue())
+		offersAndTasks[offer] = tasks
 	}
-	kafka.Debugf(this, "Launching %d tasks for offer %s", len(tasks), offer.Id.GetValue())
-	return tasks
+	notLaunchedCount := this.NumConsumers - len(this.consumerMap)
+	//if we still have unstarted consumers and lack resources - inform the user about this
+	if notLaunchedCount != 0 {
+		kafka.Warnf(this, "There are still %d consumers need to be launched and no more resources are available. Maybe add some more computing power?", notLaunchedCount)
+	}
+	return offersAndTasks
 }
 
 // TaskDied is called each time the task is lost, failed or finished giving the LoadBalancingConsumerTracker a chance to launch it on next resource offer.

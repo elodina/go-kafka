@@ -123,8 +123,9 @@ func (this *GoKafkaClientScheduler) Disconnected(scheduler.SchedulerDriver) {
 func (this *GoKafkaClientScheduler) ResourceOffers(driver scheduler.SchedulerDriver, offers []*mesos.Offer) {
 	kafka.Tracef(this, "Received offers: %s", offers)
 
+	offersAndTasks := this.Tracker.CreateTasks(offers)
 	for _, offer := range offers {
-		tasks := this.Tracker.CreateTasks(offer)
+		tasks := offersAndTasks[offer]
 		driver.LaunchTasks([]*mesos.OfferID{offer.Id}, tasks, &mesos.Filters{RefuseSeconds: proto.Float64(1)})
 	}
 }
