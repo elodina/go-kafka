@@ -1,6 +1,9 @@
 {
 	"ImportPath": "github.com/stealthly/go-kafka",
 	"GoVersion": "go1.3.3",
+	"Packages": [
+		"./..."
+	],
 	"Deps": [
 		{
 			"ImportPath": "code.google.com/p/go-uuid/uuid",
@@ -14,7 +17,7 @@
 		},
 		{
 			"ImportPath": "github.com/Shopify/sarama",
-			"Rev": "03ad601663634fd75eb357fee6782653f5a9a5ed"
+			"Rev": "950d619a1a4b311a8b55bee5bd3a49c6cb82fdec"
 		},
 		{
 			"ImportPath": "github.com/cihub/seelog",
@@ -23,7 +26,7 @@
 		},
 		{
 			"ImportPath": "github.com/eapache/go-resiliency/breaker",
-			"Rev": "ba73ce34de8ebe286f7eb54f43d2c830cd6e5592"
+			"Rev": "779a811c89f2d4ca7c2cd7efe1cd350027b407bf"
 		},
 		{
 			"ImportPath": "github.com/jimlawless/cfg",
@@ -55,7 +58,23 @@
 		},
 		{
 			"ImportPath": "github.com/stealthly/go_kafka_client",
-			"Rev": "8e536ea59f833e9b0126e8d349a2d705372f74d8"
+			"Rev": "87c586b3a6ff7bcf4150cddd39eb33218cb0ca78"
+		},
+		{
+			"ImportPath": "github.com/mesos/mesos-go/mesosproto",
+			"Rev": "594c291ed5cc6eb8ac7fa4870a45754f0d3133fa"
+		},
+		{
+			"ImportPath": "github.com/mesos/mesos-go/mesosutil",
+			"Rev": "594c291ed5cc6eb8ac7fa4870a45754f0d3133fa"
+		},
+		{
+			"ImportPath": "github.com/mesos/mesos-go/scheduler",
+			"Rev": "594c291ed5cc6eb8ac7fa4870a45754f0d3133fa"
+		},
+		{
+			"ImportPath": "github.com/golang/protobuf/proto",
+			"Rev": "0256e764f91da8d0587e741b659c4d2591a0c9aa"
 		}
 	]
 }
