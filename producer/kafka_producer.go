@@ -1,8 +1,9 @@
 /* package producer provides simplified usage of Kafka producers build on top of https://github.com/Shopify/sarama */
 package producer
 
-import ("github.com/Shopify/sarama"
+import (
 	"code.google.com/p/go-uuid/uuid"
+	"github.com/Shopify/sarama"
 )
 
 // KafkaProducer publishes Kafka messages to a given topic.
@@ -10,14 +11,14 @@ import ("github.com/Shopify/sarama"
 // it passes out of scope.
 type KafkaProducer struct {
 	//the topic to consume from
-	Topic      string
+	Topic string
 
 	/* This is for bootstrapping and the producer will only use it for getting metadata (topics, partitions and replicas).
-    The socket connections for sending the actual data will be established based on the broker information returned in
-    the metadata. */
+	   The socket connections for sending the actual data will be established based on the broker information returned in
+	   the metadata. */
 	BrokerList []string
-	client *sarama.Client
-	producer *sarama.Producer
+	client     *sarama.Client
+	producer   *sarama.Producer
 }
 
 // NewKafkaProducer creates a new produce. It will publish messages to the given topic.
@@ -48,7 +49,7 @@ func (kafkaProducer *KafkaProducer) SendBytesSync(message []byte) error {
 }
 
 func (kafkaProducer *KafkaProducer) sendSync(encoder sarama.Encoder) error {
-	message := &sarama.MessageToSend{Topic: kafkaProducer.Topic, Key: nil, Value: encoder}
+	message := &sarama.ProducerMessage{Topic: kafkaProducer.Topic, Key: nil, Value: encoder}
 	kafkaProducer.producer.Input() <- message
 	select {
 	case error := <-kafkaProducer.producer.Errors():
