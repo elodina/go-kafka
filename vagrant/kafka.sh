@@ -32,7 +32,7 @@ exitscript()
 
 mkdir -p /opt/apache
 cd /opt/apache
-version=0.8.1.1
+version=0.8.2.1
 scala=2.10
 release=kafka_$scala-$version
 
