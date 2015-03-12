@@ -8,6 +8,26 @@ import (
 
 const TestMessage = "ABC THE MESSAGE"
 
+func closeProducer(t *testing.T, p *Producer) {
+	var wg sync.WaitGroup
+	p.AsyncClose()
+
+	wg.Add(2)
+	go func() {
+		for _ = range p.Successes() {
+			t.Error("Unexpected message on Successes()")
+		}
+		wg.Done()
+	}()
+	go func() {
+		for msg := range p.Errors() {
+			t.Error(msg.Err)
+		}
+		wg.Done()
+	}()
+	wg.Wait()
+}
+
 func TestDefaultProducerConfigValidates(t *testing.T) {
 	config := NewProducerConfig()
 	if err := config.Validate(); err != nil {
@@ -15,33 +35,39 @@ func TestDefaultProducerConfigValidates(t *testing.T) {
 	}
 }
 
-func TestSimpleProducer(t *testing.T) {
-	broker1 := NewMockBroker(t, 1)
-	broker2 := NewMockBroker(t, 2)
+func TestSyncProducer(t *testing.T) {
+	seedBroker := newMockBroker(t, 1)
+	leader := newMockBroker(t, 2)
 
-	response1 := new(MetadataResponse)
-	response1.AddBroker(broker2.Addr(), broker2.BrokerID())
-	response1.AddTopicPartition("my_topic", 0, 2, nil, nil, NoError)
-	broker1.Returns(response1)
+	metadataResponse := new(MetadataResponse)
+	metadataResponse.AddBroker(leader.Addr(), leader.BrokerID())
+	metadataResponse.AddTopicPartition("my_topic", 0, leader.BrokerID(), nil, nil, ErrNoError)
+	seedBroker.Returns(metadataResponse)
 
-	response2 := new(ProduceResponse)
-	response2.AddTopicPartition("my_topic", 0, NoError)
+	prodSuccess := new(ProduceResponse)
+	prodSuccess.AddTopicPartition("my_topic", 0, ErrNoError)
 	for i := 0; i < 10; i++ {
-		broker2.Returns(response2)
+		leader.Returns(prodSuccess)
 	}
 
-	client, err := NewClient("client_id", []string{broker1.Addr()}, nil)
+	client, err := NewClient("client_id", []string{seedBroker.Addr()}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	producer, err := NewSimpleProducer(client, "my_topic", nil)
+	producer, err := NewSyncProducer(client, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	for i := 0; i < 10; i++ {
-		err = producer.SendMessage(nil, StringEncoder(TestMessage))
+		partition, offset, err := producer.SendMessage("my_topic", nil, StringEncoder(TestMessage))
+		if partition != 0 {
+			t.Error("Unexpected partition")
+		}
+		if offset != 0 {
+			t.Error("Unexpected offset")
+		}
 		if err != nil {
 			t.Error(err)
 		}
@@ -49,30 +75,31 @@ func TestSimpleProducer(t *testing.T) {
 
 	safeClose(t, producer)
 	safeClose(t, client)
-	broker2.Close()
-	broker1.Close()
+	leader.Close()
+	seedBroker.Close()
 }
 
-func TestConcurrentSimpleProducer(t *testing.T) {
-	broker1 := NewMockBroker(t, 1)
-	broker2 := NewMockBroker(t, 2)
+func TestConcurrentSyncProducer(t *testing.T) {
+	seedBroker := newMockBroker(t, 1)
+	leader := newMockBroker(t, 2)
 
-	response1 := new(MetadataResponse)
-	response1.AddBroker(broker2.Addr(), broker2.BrokerID())
-	response1.AddTopicPartition("my_topic", 0, 2, nil, nil, NoError)
-	broker1.Returns(response1)
+	metadataResponse := new(MetadataResponse)
+	metadataResponse.AddBroker(leader.Addr(), leader.BrokerID())
+	metadataResponse.AddTopicPartition("my_topic", 0, leader.BrokerID(), nil, nil, ErrNoError)
+	seedBroker.Returns(metadataResponse)
 
-	response2 := new(ProduceResponse)
-	response2.AddTopicPartition("my_topic", 0, NoError)
-	broker2.Returns(response2)
-	broker2.Returns(response2)
+	prodSuccess := new(ProduceResponse)
+	prodSuccess.AddTopicPartition("my_topic", 0, ErrNoError)
+	leader.Returns(prodSuccess)
 
-	client, err := NewClient("client_id", []string{broker1.Addr()}, nil)
+	client, err := NewClient("client_id", []string{seedBroker.Addr()}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	producer, err := NewSimpleProducer(client, "my_topic", nil)
+	config := NewProducerConfig()
+	config.FlushMsgCount = 100
+	producer, err := NewSyncProducer(client, config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +109,10 @@ func TestConcurrentSimpleProducer(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func() {
-			err := producer.SendMessage(nil, StringEncoder(TestMessage))
+			partition, _, err := producer.SendMessage("my_topic", nil, StringEncoder(TestMessage))
+			if partition != 0 {
+				t.Error("Unexpected partition")
+			}
 			if err != nil {
 				t.Error(err)
 			}
@@ -93,30 +123,27 @@ func TestConcurrentSimpleProducer(t *testing.T) {
 
 	safeClose(t, producer)
 	safeClose(t, client)
-	broker2.Close()
-	broker1.Close()
+	leader.Close()
+	seedBroker.Close()
 }
 
 func TestProducer(t *testing.T) {
-	broker1 := NewMockBroker(t, 1)
-	broker2 := NewMockBroker(t, 2)
-	defer broker1.Close()
-	defer broker2.Close()
+	seedBroker := newMockBroker(t, 1)
+	leader := newMockBroker(t, 2)
 
-	response1 := new(MetadataResponse)
-	response1.AddBroker(broker2.Addr(), broker2.BrokerID())
-	response1.AddTopicPartition("my_topic", 0, broker2.BrokerID(), nil, nil, NoError)
-	broker1.Returns(response1)
+	metadataResponse := new(MetadataResponse)
+	metadataResponse.AddBroker(leader.Addr(), leader.BrokerID())
+	metadataResponse.AddTopicPartition("my_topic", 0, leader.BrokerID(), nil, nil, ErrNoError)
+	seedBroker.Returns(metadataResponse)
 
-	response2 := new(ProduceResponse)
-	response2.AddTopicPartition("my_topic", 0, NoError)
-	broker2.Returns(response2)
+	prodSuccess := new(ProduceResponse)
+	prodSuccess.AddTopicPartition("my_topic", 0, ErrNoError)
+	leader.Returns(prodSuccess)
 
-	client, err := NewClient("client_id", []string{broker1.Addr()}, nil)
+	client, err := NewClient("client_id", []string{seedBroker.Addr()}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer safeClose(t, client)
 
 	config := NewProducerConfig()
 	config.FlushMsgCount = 10
@@ -125,10 +152,9 @@ func TestProducer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer safeClose(t, producer)
 
 	for i := 0; i < 10; i++ {
-		producer.Input() <- &MessageToSend{Topic: "my_topic", Key: nil, Value: StringEncoder(TestMessage)}
+		producer.Input() <- &ProducerMessage{Topic: "my_topic", Key: nil, Value: StringEncoder(TestMessage), Metadata: i}
 	}
 	for i := 0; i < 10; i++ {
 		select {
@@ -141,32 +167,37 @@ func TestProducer(t *testing.T) {
 			if msg.flags != 0 {
 				t.Error("Message had flags set")
 			}
+			if msg.Metadata.(int) != i {
+				t.Error("Message metadata did not match")
+			}
 		}
 	}
+
+	closeProducer(t, producer)
+	safeClose(t, client)
+	leader.Close()
+	seedBroker.Close()
 }
 
 func TestProducerMultipleFlushes(t *testing.T) {
-	broker1 := NewMockBroker(t, 1)
-	broker2 := NewMockBroker(t, 2)
-	defer broker1.Close()
-	defer broker2.Close()
+	seedBroker := newMockBroker(t, 1)
+	leader := newMockBroker(t, 2)
 
-	response1 := new(MetadataResponse)
-	response1.AddBroker(broker2.Addr(), broker2.BrokerID())
-	response1.AddTopicPartition("my_topic", 0, broker2.BrokerID(), nil, nil, NoError)
-	broker1.Returns(response1)
+	metadataResponse := new(MetadataResponse)
+	metadataResponse.AddBroker(leader.Addr(), leader.BrokerID())
+	metadataResponse.AddTopicPartition("my_topic", 0, leader.BrokerID(), nil, nil, ErrNoError)
+	seedBroker.Returns(metadataResponse)
 
-	response2 := new(ProduceResponse)
-	response2.AddTopicPartition("my_topic", 0, NoError)
-	broker2.Returns(response2)
-	broker2.Returns(response2)
-	broker2.Returns(response2)
+	prodSuccess := new(ProduceResponse)
+	prodSuccess.AddTopicPartition("my_topic", 0, ErrNoError)
+	leader.Returns(prodSuccess)
+	leader.Returns(prodSuccess)
+	leader.Returns(prodSuccess)
 
-	client, err := NewClient("client_id", []string{broker1.Addr()}, nil)
+	client, err := NewClient("client_id", []string{seedBroker.Addr()}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer safeClose(t, client)
 
 	config := NewProducerConfig()
 	config.FlushMsgCount = 5
@@ -175,11 +206,10 @@ func TestProducerMultipleFlushes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer producer.Close()
 
 	for flush := 0; flush < 3; flush++ {
 		for i := 0; i < 5; i++ {
-			producer.Input() <- &MessageToSend{Topic: "my_topic", Key: nil, Value: StringEncoder(TestMessage)}
+			producer.Input() <- &ProducerMessage{Topic: "my_topic", Key: nil, Value: StringEncoder(TestMessage)}
 		}
 		for i := 0; i < 5; i++ {
 			select {
@@ -195,36 +225,37 @@ func TestProducerMultipleFlushes(t *testing.T) {
 			}
 		}
 	}
+
+	closeProducer(t, producer)
+	safeClose(t, client)
+	leader.Close()
+	seedBroker.Close()
 }
 
 func TestProducerMultipleBrokers(t *testing.T) {
-	broker1 := NewMockBroker(t, 1)
-	broker2 := NewMockBroker(t, 2)
-	broker3 := NewMockBroker(t, 3)
-	defer broker1.Close()
-	defer broker2.Close()
-	defer broker3.Close()
+	seedBroker := newMockBroker(t, 1)
+	leader0 := newMockBroker(t, 2)
+	leader1 := newMockBroker(t, 3)
 
-	response1 := new(MetadataResponse)
-	response1.AddBroker(broker2.Addr(), broker2.BrokerID())
-	response1.AddBroker(broker3.Addr(), broker3.BrokerID())
-	response1.AddTopicPartition("my_topic", 0, broker2.BrokerID(), nil, nil, NoError)
-	response1.AddTopicPartition("my_topic", 1, broker3.BrokerID(), nil, nil, NoError)
-	broker1.Returns(response1)
+	metadataResponse := new(MetadataResponse)
+	metadataResponse.AddBroker(leader0.Addr(), leader0.BrokerID())
+	metadataResponse.AddBroker(leader1.Addr(), leader1.BrokerID())
+	metadataResponse.AddTopicPartition("my_topic", 0, leader0.BrokerID(), nil, nil, ErrNoError)
+	metadataResponse.AddTopicPartition("my_topic", 1, leader1.BrokerID(), nil, nil, ErrNoError)
+	seedBroker.Returns(metadataResponse)
 
-	response2 := new(ProduceResponse)
-	response2.AddTopicPartition("my_topic", 0, NoError)
-	broker2.Returns(response2)
+	prodResponse0 := new(ProduceResponse)
+	prodResponse0.AddTopicPartition("my_topic", 0, ErrNoError)
+	leader0.Returns(prodResponse0)
 
-	response3 := new(ProduceResponse)
-	response3.AddTopicPartition("my_topic", 1, NoError)
-	broker3.Returns(response3)
+	prodResponse1 := new(ProduceResponse)
+	prodResponse1.AddTopicPartition("my_topic", 1, ErrNoError)
+	leader1.Returns(prodResponse1)
 
-	client, err := NewClient("client_id", []string{broker1.Addr()}, nil)
+	client, err := NewClient("client_id", []string{seedBroker.Addr()}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer safeClose(t, client)
 
 	config := NewProducerConfig()
 	config.FlushMsgCount = 5
@@ -234,10 +265,9 @@ func TestProducerMultipleBrokers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer safeClose(t, producer)
 
 	for i := 0; i < 10; i++ {
-		producer.Input() <- &MessageToSend{Topic: "my_topic", Key: nil, Value: StringEncoder(TestMessage)}
+		producer.Input() <- &ProducerMessage{Topic: "my_topic", Key: nil, Value: StringEncoder(TestMessage)}
 	}
 	for i := 0; i < 10; i++ {
 		select {
@@ -252,19 +282,25 @@ func TestProducerMultipleBrokers(t *testing.T) {
 			}
 		}
 	}
+
+	closeProducer(t, producer)
+	safeClose(t, client)
+	leader1.Close()
+	leader0.Close()
+	seedBroker.Close()
 }
 
 func TestProducerFailureRetry(t *testing.T) {
-	broker1 := NewMockBroker(t, 1)
-	broker2 := NewMockBroker(t, 2)
-	broker3 := NewMockBroker(t, 3)
+	seedBroker := newMockBroker(t, 1)
+	leader1 := newMockBroker(t, 2)
+	leader2 := newMockBroker(t, 3)
 
-	response1 := new(MetadataResponse)
-	response1.AddBroker(broker2.Addr(), broker2.BrokerID())
-	response1.AddTopicPartition("my_topic", 0, broker2.BrokerID(), nil, nil, NoError)
-	broker1.Returns(response1)
+	metadataLeader1 := new(MetadataResponse)
+	metadataLeader1.AddBroker(leader1.Addr(), leader1.BrokerID())
+	metadataLeader1.AddTopicPartition("my_topic", 0, leader1.BrokerID(), nil, nil, ErrNoError)
+	seedBroker.Returns(metadataLeader1)
 
-	client, err := NewClient("client_id", []string{broker1.Addr()}, nil)
+	client, err := NewClient("client_id", []string{seedBroker.Addr()}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,46 +308,28 @@ func TestProducerFailureRetry(t *testing.T) {
 	config := NewProducerConfig()
 	config.FlushMsgCount = 10
 	config.AckSuccesses = true
+	config.RetryBackoff = 0
 	producer, err := NewProducer(client, config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	broker1.Close()
+	seedBroker.Close()
 
 	for i := 0; i < 10; i++ {
-		producer.Input() <- &MessageToSend{Topic: "my_topic", Key: nil, Value: StringEncoder(TestMessage)}
+		producer.Input() <- &ProducerMessage{Topic: "my_topic", Key: nil, Value: StringEncoder(TestMessage)}
 	}
-	response2 := new(ProduceResponse)
-	response2.AddTopicPartition("my_topic", 0, NotLeaderForPartition)
-	broker2.Returns(response2)
+	prodNotLeader := new(ProduceResponse)
+	prodNotLeader.AddTopicPartition("my_topic", 0, ErrNotLeaderForPartition)
+	leader1.Returns(prodNotLeader)
 
-	response3 := new(MetadataResponse)
-	response3.AddBroker(broker3.Addr(), broker3.BrokerID())
-	response3.AddTopicPartition("my_topic", 0, broker3.BrokerID(), nil, nil, NoError)
-	broker2.Returns(response3)
+	metadataLeader2 := new(MetadataResponse)
+	metadataLeader2.AddBroker(leader2.Addr(), leader2.BrokerID())
+	metadataLeader2.AddTopicPartition("my_topic", 0, leader2.BrokerID(), nil, nil, ErrNoError)
+	leader1.Returns(metadataLeader2)
 
-	response4 := new(ProduceResponse)
-	response4.AddTopicPartition("my_topic", 0, NoError)
-	broker3.Returns(response4)
-	for i := 0; i < 10; i++ {
-		select {
-		case msg := <-producer.Errors():
-			t.Error(msg.Err)
-			if msg.Msg.flags != 0 {
-				t.Error("Message had flags set")
-			}
-		case msg := <-producer.Successes():
-			if msg.flags != 0 {
-				t.Error("Message had flags set")
-			}
-		}
-	}
-	broker2.Close()
-
-	for i := 0; i < 10; i++ {
-		producer.Input() <- &MessageToSend{Topic: "my_topic", Key: nil, Value: StringEncoder(TestMessage)}
-	}
-	broker3.Returns(response4)
+	prodSuccess := new(ProduceResponse)
+	prodSuccess.AddTopicPartition("my_topic", 0, ErrNoError)
+	leader2.Returns(prodSuccess)
 	for i := 0; i < 10; i++ {
 		select {
 		case msg := <-producer.Errors():
@@ -325,9 +343,228 @@ func TestProducerFailureRetry(t *testing.T) {
 			}
 		}
 	}
+	leader1.Close()
 
-	broker3.Close()
-	safeClose(t, producer)
+	for i := 0; i < 10; i++ {
+		producer.Input() <- &ProducerMessage{Topic: "my_topic", Key: nil, Value: StringEncoder(TestMessage)}
+	}
+	leader2.Returns(prodSuccess)
+	for i := 0; i < 10; i++ {
+		select {
+		case msg := <-producer.Errors():
+			t.Error(msg.Err)
+			if msg.Msg.flags != 0 {
+				t.Error("Message had flags set")
+			}
+		case msg := <-producer.Successes():
+			if msg.flags != 0 {
+				t.Error("Message had flags set")
+			}
+		}
+	}
+
+	leader2.Close()
+	closeProducer(t, producer)
+	safeClose(t, client)
+}
+
+func TestProducerBrokerBounce(t *testing.T) {
+	seedBroker := newMockBroker(t, 1)
+	leader := newMockBroker(t, 2)
+	leaderAddr := leader.Addr()
+
+	metadataResponse := new(MetadataResponse)
+	metadataResponse.AddBroker(leaderAddr, leader.BrokerID())
+	metadataResponse.AddTopicPartition("my_topic", 0, leader.BrokerID(), nil, nil, ErrNoError)
+	seedBroker.Returns(metadataResponse)
+
+	client, err := NewClient("client_id", []string{seedBroker.Addr()}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	config := NewProducerConfig()
+	config.FlushMsgCount = 10
+	config.AckSuccesses = true
+	config.RetryBackoff = 0
+	producer, err := NewProducer(client, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 10; i++ {
+		producer.Input() <- &ProducerMessage{Topic: "my_topic", Key: nil, Value: StringEncoder(TestMessage)}
+	}
+	leader.Close()                               // producer should get EOF
+	leader = newMockBrokerAddr(t, 2, leaderAddr) // start it up again right away for giggles
+	seedBroker.Returns(metadataResponse)         // tell it to go to broker 2 again
+
+	prodSuccess := new(ProduceResponse)
+	prodSuccess.AddTopicPartition("my_topic", 0, ErrNoError)
+	leader.Returns(prodSuccess)
+	for i := 0; i < 10; i++ {
+		select {
+		case msg := <-producer.Errors():
+			t.Error(msg.Err)
+			if msg.Msg.flags != 0 {
+				t.Error("Message had flags set")
+			}
+		case msg := <-producer.Successes():
+			if msg.flags != 0 {
+				t.Error("Message had flags set")
+			}
+		}
+	}
+	seedBroker.Close()
+	leader.Close()
+
+	closeProducer(t, producer)
+	safeClose(t, client)
+}
+
+func TestProducerBrokerBounceWithStaleMetadata(t *testing.T) {
+	seedBroker := newMockBroker(t, 1)
+	leader1 := newMockBroker(t, 2)
+	leader2 := newMockBroker(t, 3)
+
+	metadataLeader1 := new(MetadataResponse)
+	metadataLeader1.AddBroker(leader1.Addr(), leader1.BrokerID())
+	metadataLeader1.AddTopicPartition("my_topic", 0, leader1.BrokerID(), nil, nil, ErrNoError)
+	seedBroker.Returns(metadataLeader1)
+
+	client, err := NewClient("client_id", []string{seedBroker.Addr()}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	config := NewProducerConfig()
+	config.FlushMsgCount = 10
+	config.AckSuccesses = true
+	config.MaxRetries = 3
+	config.RetryBackoff = 0
+	producer, err := NewProducer(client, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 10; i++ {
+		producer.Input() <- &ProducerMessage{Topic: "my_topic", Key: nil, Value: StringEncoder(TestMessage)}
+	}
+	leader1.Close()                     // producer should get EOF
+	seedBroker.Returns(metadataLeader1) // tell it to go to leader1 again even though it's still down
+	seedBroker.Returns(metadataLeader1) // tell it to go to leader1 again even though it's still down
+
+	// ok fine, tell it to go to leader2 finally
+	metadataLeader2 := new(MetadataResponse)
+	metadataLeader2.AddBroker(leader2.Addr(), leader2.BrokerID())
+	metadataLeader2.AddTopicPartition("my_topic", 0, leader2.BrokerID(), nil, nil, ErrNoError)
+	seedBroker.Returns(metadataLeader2)
+
+	prodSuccess := new(ProduceResponse)
+	prodSuccess.AddTopicPartition("my_topic", 0, ErrNoError)
+	leader2.Returns(prodSuccess)
+	for i := 0; i < 10; i++ {
+		select {
+		case msg := <-producer.Errors():
+			t.Error(msg.Err)
+			if msg.Msg.flags != 0 {
+				t.Error("Message had flags set")
+			}
+		case msg := <-producer.Successes():
+			if msg.flags != 0 {
+				t.Error("Message had flags set")
+			}
+		}
+	}
+	seedBroker.Close()
+	leader2.Close()
+
+	closeProducer(t, producer)
+	safeClose(t, client)
+}
+
+func TestProducerMultipleRetries(t *testing.T) {
+	seedBroker := newMockBroker(t, 1)
+	leader1 := newMockBroker(t, 2)
+	leader2 := newMockBroker(t, 3)
+
+	metadataLeader1 := new(MetadataResponse)
+	metadataLeader1.AddBroker(leader1.Addr(), leader1.BrokerID())
+	metadataLeader1.AddTopicPartition("my_topic", 0, leader1.BrokerID(), nil, nil, ErrNoError)
+	seedBroker.Returns(metadataLeader1)
+
+	client, err := NewClient("client_id", []string{seedBroker.Addr()}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	config := NewProducerConfig()
+	config.FlushMsgCount = 10
+	config.AckSuccesses = true
+	config.MaxRetries = 4
+	config.RetryBackoff = 0
+	producer, err := NewProducer(client, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 10; i++ {
+		producer.Input() <- &ProducerMessage{Topic: "my_topic", Key: nil, Value: StringEncoder(TestMessage)}
+	}
+	prodNotLeader := new(ProduceResponse)
+	prodNotLeader.AddTopicPartition("my_topic", 0, ErrNotLeaderForPartition)
+	leader1.Returns(prodNotLeader)
+
+	metadataLeader2 := new(MetadataResponse)
+	metadataLeader2.AddBroker(leader2.Addr(), leader2.BrokerID())
+	metadataLeader2.AddTopicPartition("my_topic", 0, leader2.BrokerID(), nil, nil, ErrNoError)
+	seedBroker.Returns(metadataLeader2)
+	leader2.Returns(prodNotLeader)
+	seedBroker.Returns(metadataLeader1)
+	leader1.Returns(prodNotLeader)
+	seedBroker.Returns(metadataLeader1)
+	leader1.Returns(prodNotLeader)
+	seedBroker.Returns(metadataLeader2)
+
+	prodSuccess := new(ProduceResponse)
+	prodSuccess.AddTopicPartition("my_topic", 0, ErrNoError)
+	leader2.Returns(prodSuccess)
+	for i := 0; i < 10; i++ {
+		select {
+		case msg := <-producer.Errors():
+			t.Error(msg.Err)
+			if msg.Msg.flags != 0 {
+				t.Error("Message had flags set")
+			}
+		case msg := <-producer.Successes():
+			if msg.flags != 0 {
+				t.Error("Message had flags set")
+			}
+		}
+	}
+
+	for i := 0; i < 10; i++ {
+		producer.Input() <- &ProducerMessage{Topic: "my_topic", Key: nil, Value: StringEncoder(TestMessage)}
+	}
+	leader2.Returns(prodSuccess)
+	for i := 0; i < 10; i++ {
+		select {
+		case msg := <-producer.Errors():
+			t.Error(msg.Err)
+			if msg.Msg.flags != 0 {
+				t.Error("Message had flags set")
+			}
+		case msg := <-producer.Successes():
+			if msg.flags != 0 {
+				t.Error("Message had flags set")
+			}
+		}
+	}
+
+	seedBroker.Close()
+	leader1.Close()
+	leader2.Close()
+	closeProducer(t, producer)
 	safeClose(t, client)
 }
 
@@ -348,7 +585,7 @@ func ExampleProducer() {
 
 	for {
 		select {
-		case producer.Input() <- &MessageToSend{Topic: "my_topic", Key: nil, Value: StringEncoder("testing 123")}:
+		case producer.Input() <- &ProducerMessage{Topic: "my_topic", Key: nil, Value: StringEncoder("testing 123")}:
 			fmt.Println("> message queued")
 		case err := <-producer.Errors():
 			panic(err.Err)
@@ -356,7 +593,7 @@ func ExampleProducer() {
 	}
 }
 
-func ExampleSimpleProducer() {
+func ExampleSyncProducer() {
 	client, err := NewClient("client_id", []string{"localhost:9092"}, NewClientConfig())
 	if err != nil {
 		panic(err)
@@ -365,18 +602,18 @@ func ExampleSimpleProducer() {
 	}
 	defer client.Close()
 
-	producer, err := NewSimpleProducer(client, "my_topic", nil)
+	producer, err := NewSyncProducer(client, nil)
 	if err != nil {
 		panic(err)
 	}
 	defer producer.Close()
 
 	for {
-		err = producer.SendMessage(nil, StringEncoder("testing 123"))
+		partition, offset, err := producer.SendMessage("my_topic", nil, StringEncoder("testing 123"))
 		if err != nil {
 			panic(err)
 		} else {
-			fmt.Println("> message sent")
+			fmt.Printf("> message sent to partition %d at offset %d\n", partition, offset)
 		}
 	}
 }
