@@ -33,8 +33,8 @@ var readTopic string
 var writeTopic string
 var group = "ping-pong-go-group"
 
-var broker = "go-broker:9092"
-var zookeeper = "go-zookeeper:2181"
+var broker = "localhost:9092"
+var zookeeper = "localhost:2181"
 
 var kafkaProducer *producer.KafkaProducer = nil
 var kafkaConsumer *go_kafka_client.Consumer = nil
@@ -50,6 +50,7 @@ func main() {
 
 	//Actual consumer settings
 	consumerConfig := go_kafka_client.DefaultConsumerConfig()
+    consumerConfig.AutoOffsetReset = go_kafka_client.SmallestOffset
 	consumerConfig.Coordinator = go_kafka_client.NewZookeeperCoordinator(zookeeperConfig)
 	consumerConfig.Groupid = group
 	consumerConfig.NumWorkers = 1
