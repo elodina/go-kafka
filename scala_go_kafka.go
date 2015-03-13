@@ -1,20 +1,17 @@
 package main
 
 import (
+	"bytes"
+	"code.google.com/p/go-uuid/uuid"
 	"fmt"
+	"github.com/stealthly/go-avro"
 	"github.com/stealthly/go-kafka/producer"
-	"github.com/stealthly/go-avro/decoder"
-	"github.com/stealthly/go-avro/encoder"
-	"github.com/stealthly/go-avro/schema"
-	"github.com/stealthly/go-avro/avro"
 	"github.com/stealthly/go_kafka_client"
-	"time"
+	"io/ioutil"
+	"math/big"
 	"os"
 	"os/signal"
-	"math/big"
-	"code.google.com/p/go-uuid/uuid"
-	"io/ioutil"
-	"bytes"
+	"time"
 )
 
 type PingPong struct {
@@ -28,7 +25,7 @@ func (p *PingPong) String() string {
 	return fmt.Sprintf("{\"counter\": %d, \"name\": \"%s\", \"uuid\": \"%s\"}", p.Counter, p.Name, p.Uuid)
 }
 
-var schemaRegistry = map[int64]string {
+var schemaRegistry = map[int64]string{
 	int64(0): "./scalago.avsc",
 }
 
@@ -49,7 +46,7 @@ func main() {
 
 	//Coordinator settings
 	zookeeperConfig := go_kafka_client.NewZookeeperConfig()
-	zookeeperConfig.ZookeeperConnect = []string{ zookeeper }
+	zookeeperConfig.ZookeeperConnect = []string{zookeeper}
 
 	//Actual consumer settings
 	consumerConfig := go_kafka_client.DefaultConsumerConfig()
@@ -97,7 +94,7 @@ func pingPongLoop(p *PingPong) {
 
 	fmt.Println("golang > Started!")
 	kafkaConsumer.StartStatic(map[string]int{
-		readTopic : 1,
+		readTopic: 1,
 	})
 }
 
@@ -108,11 +105,11 @@ func modify(obj *PingPong) {
 
 func encode(obj *PingPong, schemaId []byte) []byte {
 	buffer := &bytes.Buffer{}
-	buffer.Write([]byte {CAMUS_MAGIC})
+	buffer.Write([]byte{CAMUS_MAGIC})
 	buffer.Write(schemaId)
 
-	enc := encoder.NewBinaryEncoder(buffer)
-	writer := encoder.NewGenericDatumWriter()
+	enc := avro.NewBinaryEncoder(buffer)
+	writer := avro.NewGenericDatumWriter()
 	writer.SetSchema(schemaById(schemaId))
 
 	writer.Write(obj, enc)
@@ -126,14 +123,18 @@ func decode(obj interface{}, bytes []byte) *CamusData {
 	return camus
 }
 
-func schemaById(bytes []byte) schema.Schema {
+func schemaById(bytes []byte) avro.Schema {
 	id := new(big.Int)
 	id.SetBytes(bytes)
 	schemaFile := schemaRegistry[id.Int64()]
 	if schemaBytes, err := ioutil.ReadFile(schemaFile); err != nil {
 		panic(err)
 	} else {
-		return schema.Parse(schemaBytes)
+		schema, err := avro.ParseSchema(string(schemaBytes))
+		if err != nil {
+			panic(err)
+		}
+		return schema
 	}
 }
 
@@ -141,12 +142,12 @@ var CAMUS_MAGIC byte = byte(0)
 
 type CamusData struct {
 	schemaId    []byte
-	dec        *decoder.BinaryDecoder
+	dec         *avro.BinaryDecoder
 	datumReader avro.DatumReader
 }
 
 func NewCamusData(data []byte) *CamusData {
-	dec := decoder.NewBinaryDecoder(data)
+	dec := avro.NewBinaryDecoder(data)
 	if magic, err := dec.ReadInt(); err != nil {
 		panic(err)
 	} else {
@@ -157,10 +158,10 @@ func NewCamusData(data []byte) *CamusData {
 		schemaIdArray := make([]byte, 4)
 		dec.ReadFixed(schemaIdArray)
 		schema := schemaById(schemaIdArray)
-		datumReader := decoder.NewGenericDatumReader()
+		datumReader := avro.NewGenericDatumReader()
 		datumReader.SetSchema(schema)
 
-		return &CamusData{ schemaIdArray, dec, datumReader }
+		return &CamusData{schemaIdArray, dec, datumReader}
 	}
 }
 

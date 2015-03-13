@@ -14,6 +14,39 @@ type ClientConfig struct {
 	BackgroundRefreshFrequency time.Duration // How frequently the client will refresh the cluster metadata in the background. Defaults to 10 minutes. Set to 0 to disable.
 }
 
+// NewClientConfig creates a new ClientConfig instance with sensible defaults
+func NewClientConfig() *ClientConfig {
+	return &ClientConfig{
+		MetadataRetries:            3,
+		WaitForElection:            250 * time.Millisecond,
+		BackgroundRefreshFrequency: 10 * time.Minute,
+	}
+}
+
+// Validate checks a ClientConfig instance. This will return a
+// ConfigurationError if the specified values don't make sense.
+func (config *ClientConfig) Validate() error {
+	if config.MetadataRetries < 0 {
+		return ConfigurationError("Invalid MetadataRetries, must be >= 0")
+	}
+
+	if config.WaitForElection <= time.Duration(0) {
+		return ConfigurationError("Invalid WaitForElection, must be > 0")
+	}
+
+	if config.DefaultBrokerConf != nil {
+		if err := config.DefaultBrokerConf.Validate(); err != nil {
+			return err
+		}
+	}
+
+	if config.BackgroundRefreshFrequency < time.Duration(0) {
+		return ConfigurationError("Invalid BackgroundRefreshFrequency, must be >= 0")
+	}
+
+	return nil
+}
+
 // Client is a generic Kafka client. It manages connections to one or more Kafka brokers.
 // You MUST call Close() on a client to avoid leaks, it will not be garbage-collected
 // automatically when it passes out of scope. A single client can be safely shared by
@@ -32,7 +65,11 @@ type Client struct {
 
 	brokers  map[int32]*Broker                       // maps broker ids to brokers
 	metadata map[string]map[int32]*PartitionMetadata // maps topics to partition ids to metadata
-	lock     sync.RWMutex                            // protects access to the maps, only one since they're always written together
+
+	// If the number of partitions is large, we can get some churn calling cachedPartitions,
+	// so the result is cached.  It is important to update this value whenever metadata is changed
+	cachedPartitionsResults map[string][maxPartitionIndex][]int32
+	lock                    sync.RWMutex // protects access to the maps, only one since they're always written together
 }
 
 // NewClient creates a new Client with the given client ID. It connects to one of the given broker addresses
@@ -54,14 +91,15 @@ func NewClient(id string, addrs []string, config *ClientConfig) (*Client, error)
 	}
 
 	client := &Client{
-		id:              id,
-		config:          *config,
-		closer:          make(chan none),
-		seedBrokerAddrs: addrs,
-		seedBroker:      NewBroker(addrs[0]),
-		deadBrokerAddrs: make(map[string]none),
-		brokers:         make(map[int32]*Broker),
-		metadata:        make(map[string]map[int32]*PartitionMetadata),
+		id:                      id,
+		config:                  *config,
+		closer:                  make(chan none),
+		seedBrokerAddrs:         addrs,
+		seedBroker:              NewBroker(addrs[0]),
+		deadBrokerAddrs:         make(map[string]none),
+		brokers:                 make(map[int32]*Broker),
+		metadata:                make(map[string]map[int32]*PartitionMetadata),
+		cachedPartitionsResults: make(map[string][maxPartitionIndex][]int32),
 	}
 	_ = client.seedBroker.Open(config.DefaultBrokerConf)
 
@@ -70,7 +108,7 @@ func NewClient(id string, addrs []string, config *ClientConfig) (*Client, error)
 	switch err {
 	case nil:
 		break
-	case LeaderNotAvailable:
+	case ErrLeaderNotAvailable, ErrReplicaNotAvailable:
 		// indicates that maybe part of the cluster is down, but is not fatal to creating the client
 		Logger.Println(err)
 	default:
@@ -93,7 +131,7 @@ func (client *Client) Close() error {
 		// Chances are this is being called from a defer() and the error will go unobserved
 		// so we go ahead and log the event in this case.
 		Logger.Printf("Close() called on already closed client")
-		return ClosedClient
+		return ErrClosedClient
 	}
 
 	client.lock.Lock()
@@ -115,66 +153,16 @@ func (client *Client) Close() error {
 	return nil
 }
 
-// Partitions returns the sorted list of all partition IDs for the given topic.
-func (client *Client) Partitions(topic string) ([]int32, error) {
-	// Check to see whether the client is closed
-	if client.Closed() {
-		return nil, ClosedClient
-	}
-
-	partitions := client.cachedPartitions(topic, allPartitions)
-
-	if len(partitions) == 0 {
-		err := client.RefreshTopicMetadata(topic)
-		if err != nil {
-			return nil, err
-		}
-		partitions = client.cachedPartitions(topic, allPartitions)
-	}
-
-	if partitions == nil {
-		return nil, UnknownTopicOrPartition
-	}
-
-	return partitions, nil
-}
-
-// WritablePartitions returns the sorted list of all writable partition IDs for the given topic,
-// where "writable" means "having a valid leader accepting writes".
-func (client *Client) WritablePartitions(topic string) ([]int32, error) {
-	// Check to see whether the client is closed
-	if client.Closed() {
-		return nil, ClosedClient
-	}
-
-	partitions := client.cachedPartitions(topic, writablePartitions)
-
-	// len==0 catches when it's nil (no such topic) and the odd case when every single
-	// partition is undergoing leader election simultaneously. Callers have to be able to handle
-	// this function returning an empty slice (which is a valid return value) but catching it
-	// here the first time (note we *don't* catch it below where we return UnknownTopicOrPartition) triggers
-	// a metadata refresh as a nicety so callers can just try again and don't have to manually
-	// trigger a refresh (otherwise they'd just keep getting a stale cached copy).
-	if len(partitions) == 0 {
-		err := client.RefreshTopicMetadata(topic)
-		if err != nil {
-			return nil, err
-		}
-		partitions = client.cachedPartitions(topic, writablePartitions)
-	}
-
-	if partitions == nil {
-		return nil, UnknownTopicOrPartition
-	}
-
-	return partitions, nil
+// Closed returns true if the client has already had Close called on it
+func (client *Client) Closed() bool {
+	return client.brokers == nil
 }
 
 // Topics returns the set of available topics as retrieved from the cluster metadata.
 func (client *Client) Topics() ([]string, error) {
 	// Check to see whether the client is closed
 	if client.Closed() {
-		return nil, ClosedClient
+		return nil, ErrClosedClient
 	}
 
 	client.lock.RLock()
@@ -188,27 +176,65 @@ func (client *Client) Topics() ([]string, error) {
 	return ret, nil
 }
 
-func (client *Client) getMetadata(topic string, partitionID int32) (*PartitionMetadata, error) {
-	metadata := client.cachedMetadata(topic, partitionID)
+// Partitions returns the sorted list of all partition IDs for the given topic.
+func (client *Client) Partitions(topic string) ([]int32, error) {
+	// Check to see whether the client is closed
+	if client.Closed() {
+		return nil, ErrClosedClient
+	}
 
-	if metadata == nil {
+	partitions := client.cachedPartitions(topic, allPartitions)
+
+	if len(partitions) == 0 {
 		err := client.RefreshTopicMetadata(topic)
 		if err != nil {
 			return nil, err
 		}
-		metadata = client.cachedMetadata(topic, partitionID)
+		partitions = client.cachedPartitions(topic, allPartitions)
 	}
 
-	if metadata == nil {
-		return nil, UnknownTopicOrPartition
+	if partitions == nil {
+		return nil, ErrUnknownTopicOrPartition
 	}
 
-	return metadata, nil
+	return partitions, nil
 }
 
+// WritablePartitions returns the sorted list of all writable partition IDs for the given topic,
+// where "writable" means "having a valid leader accepting writes".
+func (client *Client) WritablePartitions(topic string) ([]int32, error) {
+	// Check to see whether the client is closed
+	if client.Closed() {
+		return nil, ErrClosedClient
+	}
+
+	partitions := client.cachedPartitions(topic, writablePartitions)
+
+	// len==0 catches when it's nil (no such topic) and the odd case when every single
+	// partition is undergoing leader election simultaneously. Callers have to be able to handle
+	// this function returning an empty slice (which is a valid return value) but catching it
+	// here the first time (note we *don't* catch it below where we return ErrUnknownTopicOrPartition) triggers
+	// a metadata refresh as a nicety so callers can just try again and don't have to manually
+	// trigger a refresh (otherwise they'd just keep getting a stale cached copy).
+	if len(partitions) == 0 {
+		err := client.RefreshTopicMetadata(topic)
+		if err != nil {
+			return nil, err
+		}
+		partitions = client.cachedPartitions(topic, writablePartitions)
+	}
+
+	if partitions == nil {
+		return nil, ErrUnknownTopicOrPartition
+	}
+
+	return partitions, nil
+}
+
+// Replicas returns the set of all replica IDs for the given partition.
 func (client *Client) Replicas(topic string, partitionID int32) ([]int32, error) {
 	if client.Closed() {
-		return nil, ClosedClient
+		return nil, ErrClosedClient
 	}
 
 	metadata, err := client.getMetadata(topic, partitionID)
@@ -217,15 +243,18 @@ func (client *Client) Replicas(topic string, partitionID int32) ([]int32, error)
 		return nil, err
 	}
 
-	if metadata.Err == ReplicaNotAvailable {
+	if metadata.Err == ErrReplicaNotAvailable {
 		return nil, metadata.Err
 	}
 	return dupeAndSort(metadata.Replicas), nil
 }
 
+// ReplicasInSync returns the set of all in-sync replica IDs for the given partition.
+// Note: kafka's metadata here is known to be stale in many cases, and should not generally be trusted.
+// This method should be considered effectively deprecated.
 func (client *Client) ReplicasInSync(topic string, partitionID int32) ([]int32, error) {
 	if client.Closed() {
-		return nil, ClosedClient
+		return nil, ErrClosedClient
 	}
 
 	metadata, err := client.getMetadata(topic, partitionID)
@@ -234,7 +263,7 @@ func (client *Client) ReplicasInSync(topic string, partitionID int32) ([]int32, 
 		return nil, err
 	}
 
-	if metadata.Err == ReplicaNotAvailable {
+	if metadata.Err == ErrReplicaNotAvailable {
 		return nil, metadata.Err
 	}
 	return dupeAndSort(metadata.Isr), nil
@@ -286,19 +315,19 @@ func (client *Client) GetOffset(topic string, partitionID int32, where OffsetTim
 
 	block := response.GetBlock(topic, partitionID)
 	if block == nil {
-		return -1, IncompleteResponse
+		return -1, ErrIncompleteResponse
 	}
-	if block.Err != NoError {
+	if block.Err != ErrNoError {
 		return -1, block.Err
 	}
 	if len(block.Offsets) != 1 {
-		return -1, OffsetOutOfRange
+		return -1, ErrOffsetOutOfRange
 	}
 
 	return block.Offsets[0], nil
 }
 
-// misc private helper functions
+// private broker management helpers
 
 // XXX: see https://github.com/Shopify/sarama/issues/15
 //      and https://github.com/Shopify/sarama/issues/23
@@ -326,68 +355,6 @@ func (client *Client) disconnectBroker(broker *Broker) {
 	}
 
 	safeAsyncClose(broker)
-}
-
-func (client *Client) Closed() bool {
-	return client.brokers == nil
-}
-
-func (client *Client) refreshMetadata(topics []string, retriesRemaining int) error {
-	// This function is a sort of central point for most functions that create new
-	// resources.  Check to see if we're dealing with a closed Client and error
-	// out immediately if so.
-	if client.Closed() {
-		return ClosedClient
-	}
-
-	// Kafka will throw exceptions on an empty topic and not return a proper
-	// error. This handles the case by returning an error instead of sending it
-	// off to Kafka. See: https://github.com/Shopify/sarama/pull/38#issuecomment-26362310
-	for _, topic := range topics {
-		if len(topic) == 0 {
-			return UnknownTopicOrPartition
-		}
-	}
-
-	for broker := client.any(); broker != nil; broker = client.any() {
-		Logger.Printf("Fetching metadata from broker %s\n", broker.addr)
-		response, err := broker.GetMetadata(client.id, &MetadataRequest{Topics: topics})
-
-		switch err {
-		case nil:
-			// valid response, use it
-			retry, err := client.update(response)
-
-			if len(retry) > 0 {
-				if retriesRemaining <= 0 {
-					return nil
-				}
-				Logger.Printf("Some partitions are leaderless, waiting %dms for election... (%d retries remaining)\n", client.config.WaitForElection/time.Millisecond, retriesRemaining)
-				time.Sleep(client.config.WaitForElection) // wait for leader election
-				return client.refreshMetadata(retry, retriesRemaining-1)
-			}
-
-			return err
-		case EncodingError:
-			// didn't even send, return the error
-			return err
-		default:
-			// some other error, remove that broker and try again
-			Logger.Println("Error from broker while fetching metadata:", err)
-			client.disconnectBroker(broker)
-		}
-	}
-
-	Logger.Println("Out of available brokers.")
-
-	if retriesRemaining > 0 {
-		Logger.Printf("Resurrecting dead brokers after %dms... (%d retries remaining)\n", client.config.WaitForElection/time.Millisecond, retriesRemaining)
-		time.Sleep(client.config.WaitForElection)
-		client.resurrectDeadBrokers()
-		return client.refreshMetadata(topics, retriesRemaining-1)
-	}
-
-	return OutOfBrokers
 }
 
 func (client *Client) resurrectDeadBrokers() {
@@ -423,22 +390,35 @@ func (client *Client) any() *Broker {
 	return nil
 }
 
-func (client *Client) cachedLeader(topic string, partitionID int32) (*Broker, error) {
-	client.lock.RLock()
-	defer client.lock.RUnlock()
+// private caching/lazy metadata helpers
 
-	partitions := client.metadata[topic]
-	if partitions != nil {
-		metadata, ok := partitions[partitionID]
-		if ok {
-			if metadata.Err == LeaderNotAvailable {
-				return nil, metadata.Err
-			}
-			return client.brokers[metadata.Leader], nil
+type partitionType int
+
+const (
+	allPartitions partitionType = iota
+	writablePartitions
+	// If you add any more types, update the partition cache in update()
+
+	// Ensure this is the last partition type value
+	maxPartitionIndex
+)
+
+func (client *Client) getMetadata(topic string, partitionID int32) (*PartitionMetadata, error) {
+	metadata := client.cachedMetadata(topic, partitionID)
+
+	if metadata == nil {
+		err := client.RefreshTopicMetadata(topic)
+		if err != nil {
+			return nil, err
 		}
+		metadata = client.cachedMetadata(topic, partitionID)
 	}
 
-	return nil, UnknownTopicOrPartition
+	if metadata == nil {
+		return nil, ErrUnknownTopicOrPartition
+	}
+
+	return metadata, nil
 }
 
 func (client *Client) cachedMetadata(topic string, partitionID int32) *PartitionMetadata {
@@ -453,23 +433,28 @@ func (client *Client) cachedMetadata(topic string, partitionID int32) *Partition
 	return nil
 }
 
-const (
-	allPartitions = iota
-	writablePartitions
-)
-
-func (client *Client) cachedPartitions(topic string, partitionSet int) []int32 {
+func (client *Client) cachedPartitions(topic string, partitionSet partitionType) []int32 {
 	client.lock.RLock()
 	defer client.lock.RUnlock()
 
+	partitions, exists := client.cachedPartitionsResults[topic]
+
+	if !exists {
+		return nil
+	}
+	return partitions[partitionSet]
+}
+
+func (client *Client) setPartitionCache(topic string, partitionSet partitionType) []int32 {
 	partitions := client.metadata[topic]
+
 	if partitions == nil {
 		return nil
 	}
 
 	ret := make([]int32, 0, len(partitions))
 	for _, partition := range partitions {
-		if partitionSet == writablePartitions && partition.Err == LeaderNotAvailable {
+		if partitionSet == writablePartitions && partition.Err == ErrLeaderNotAvailable {
 			continue
 		}
 		ret = append(ret, partition.ID)
@@ -478,6 +463,30 @@ func (client *Client) cachedPartitions(topic string, partitionSet int) []int32 {
 	sort.Sort(int32Slice(ret))
 	return ret
 }
+
+func (client *Client) cachedLeader(topic string, partitionID int32) (*Broker, error) {
+	client.lock.RLock()
+	defer client.lock.RUnlock()
+
+	partitions := client.metadata[topic]
+	if partitions != nil {
+		metadata, ok := partitions[partitionID]
+		if ok {
+			if metadata.Err == ErrLeaderNotAvailable {
+				return nil, ErrLeaderNotAvailable
+			}
+			b := client.brokers[metadata.Leader]
+			if b == nil {
+				return nil, ErrLeaderNotAvailable
+			}
+			return b, nil
+		}
+	}
+
+	return nil, ErrUnknownTopicOrPartition
+}
+
+// core metadata update logic
 
 func (client *Client) backgroundMetadataUpdater() {
 	if client.config.BackgroundRefreshFrequency == time.Duration(0) {
@@ -498,7 +507,70 @@ func (client *Client) backgroundMetadataUpdater() {
 	}
 }
 
-// if no fatal error, returns a list of topics that need retrying due to LeaderNotAvailable
+func (client *Client) refreshMetadata(topics []string, retriesRemaining int) error {
+	// This function is a sort of central point for most functions that create new
+	// resources.  Check to see if we're dealing with a closed Client and error
+	// out immediately if so.
+	if client.Closed() {
+		return ErrClosedClient
+	}
+
+	// Kafka will throw exceptions on an empty topic and not return a proper
+	// error. This handles the case by returning an error instead of sending it
+	// off to Kafka. See: https://github.com/Shopify/sarama/pull/38#issuecomment-26362310
+	for _, topic := range topics {
+		if len(topic) == 0 {
+			return ErrUnknownTopicOrPartition
+		}
+	}
+
+	for broker := client.any(); broker != nil; broker = client.any() {
+		if len(topics) > 0 {
+			Logger.Printf("Fetching metadata for %v from broker %s\n", topics, broker.addr)
+		} else {
+			Logger.Printf("Fetching metadata for all topics from broker %s\n", broker.addr)
+		}
+		response, err := broker.GetMetadata(client.id, &MetadataRequest{Topics: topics})
+
+		switch err.(type) {
+		case nil:
+			// valid response, use it
+			retry, err := client.update(response)
+
+			if len(retry) > 0 {
+				if retriesRemaining <= 0 {
+					Logger.Println("Some partitions are leaderless, but we're out of retries")
+					return nil
+				}
+				Logger.Printf("Some partitions are leaderless, waiting %dms for election... (%d retries remaining)\n", client.config.WaitForElection/time.Millisecond, retriesRemaining)
+				time.Sleep(client.config.WaitForElection) // wait for leader election
+				return client.refreshMetadata(retry, retriesRemaining-1)
+			}
+
+			return err
+		case PacketEncodingError:
+			// didn't even send, return the error
+			return err
+		default:
+			// some other error, remove that broker and try again
+			Logger.Println("Error from broker while fetching metadata:", err)
+			client.disconnectBroker(broker)
+		}
+	}
+
+	Logger.Println("Out of available brokers.")
+
+	if retriesRemaining > 0 {
+		Logger.Printf("Resurrecting dead brokers after %dms... (%d retries remaining)\n", client.config.WaitForElection/time.Millisecond, retriesRemaining)
+		time.Sleep(client.config.WaitForElection)
+		client.resurrectDeadBrokers()
+		return client.refreshMetadata(topics, retriesRemaining-1)
+	}
+
+	return ErrOutOfBrokers
+}
+
+// if no fatal error, returns a list of topics that need retrying due to ErrLeaderNotAvailable
 func (client *Client) update(data *MetadataResponse) ([]string, error) {
 	client.lock.Lock()
 	defer client.lock.Unlock()
@@ -527,26 +599,27 @@ func (client *Client) update(data *MetadataResponse) ([]string, error) {
 
 	var err error
 	for _, topic := range data.Topics {
-		if topic.Err != NoError {
+		switch topic.Err {
+		case ErrNoError:
+			break
+		case ErrLeaderNotAvailable:
+			toRetry[topic.Name] = true
+		default:
 			err = topic.Err
-			continue
 		}
 
 		client.metadata[topic.Name] = make(map[int32]*PartitionMetadata, len(topic.Partitions))
+		delete(client.cachedPartitionsResults, topic.Name)
 		for _, partition := range topic.Partitions {
 			client.metadata[topic.Name][partition.ID] = partition
-			switch partition.Err {
-			case NoError:
-				broker := client.brokers[partition.Leader]
-				if _, present := client.deadBrokerAddrs[broker.Addr()]; present {
-					if connected, _ := broker.Connected(); !connected {
-						toRetry[topic.Name] = true
-					}
-				}
-			case LeaderNotAvailable:
+			if partition.Err == ErrLeaderNotAvailable {
 				toRetry[topic.Name] = true
 			}
 		}
+		var partitionCache [maxPartitionIndex][]int32
+		partitionCache[allPartitions] = client.setPartitionCache(topic.Name, allPartitions)
+		partitionCache[writablePartitions] = client.setPartitionCache(topic.Name, writablePartitions)
+		client.cachedPartitionsResults[topic.Name] = partitionCache
 	}
 
 	if err != nil {
@@ -558,37 +631,4 @@ func (client *Client) update(data *MetadataResponse) ([]string, error) {
 		ret = append(ret, topic)
 	}
 	return ret, nil
-}
-
-// NewClientConfig creates a new ClientConfig instance with sensible defaults
-func NewClientConfig() *ClientConfig {
-	return &ClientConfig{
-		MetadataRetries:            3,
-		WaitForElection:            250 * time.Millisecond,
-		BackgroundRefreshFrequency: 10 * time.Minute,
-	}
-}
-
-// Validate checks a ClientConfig instance. This will return a
-// ConfigurationError if the specified values don't make sense.
-func (config *ClientConfig) Validate() error {
-	if config.MetadataRetries < 0 {
-		return ConfigurationError("Invalid MetadataRetries, must be >= 0")
-	}
-
-	if config.WaitForElection <= time.Duration(0) {
-		return ConfigurationError("Invalid WaitForElection, must be > 0")
-	}
-
-	if config.DefaultBrokerConf != nil {
-		if err := config.DefaultBrokerConf.Validate(); err != nil {
-			return err
-		}
-	}
-
-	if config.BackgroundRefreshFrequency < time.Duration(0) {
-		return ConfigurationError("Invalid BackgroundRefreshFrequency, must be >= 0")
-	}
-
-	return nil
 }

@@ -52,7 +52,7 @@ type Conn struct {
 	sessionID int64
 	state     State // must be 32-bit aligned
 	xid       int32
-	timeout   int32 // session timeout in seconds
+	timeout   int32 // session timeout in milliseconds
 	passwd    []byte
 
 	dialer         Dialer
@@ -104,13 +104,24 @@ type Event struct {
 	Err   error
 }
 
-func Connect(servers []string, recvTimeout time.Duration) (*Conn, <-chan Event, error) {
-	return ConnectWithDialer(servers, recvTimeout, nil)
+// Connect establishes a new connection to a pool of zookeeper servers
+// using the default net.Dialer. See ConnectWithDialer for further
+// information about session timeout.
+func Connect(servers []string, sessionTimeout time.Duration) (*Conn, <-chan Event, error) {
+	return ConnectWithDialer(servers, sessionTimeout, nil)
 }
 
-func ConnectWithDialer(servers []string, recvTimeout time.Duration, dialer Dialer) (*Conn, <-chan Event, error) {
+// ConnectWithDialer establishes a new connection to a pool of zookeeper
+// servers. The provided session timeout sets the amount of time for which
+// a session is considered valid after losing connection to a server. Within
+// the session timeout it's possible to reestablish a connection to a different
+// server and keep the same session. This is means any ephemeral nodes and
+// watches are maintained.
+func ConnectWithDialer(servers []string, sessionTimeout time.Duration, dialer Dialer) (*Conn, <-chan Event, error) {
 	// Randomize the order of the servers to avoid creating hotspots
 	stringShuffle(servers)
+
+	recvTimeout := sessionTimeout * 2 / 3
 
 	for i, addr := range servers {
 		if !strings.Contains(addr, ":") {
@@ -130,13 +141,13 @@ func ConnectWithDialer(servers []string, recvTimeout time.Duration, dialer Diale
 		eventChan:      ec,
 		shouldQuit:     make(chan bool),
 		recvTimeout:    recvTimeout,
-		pingInterval:   time.Duration((int64(recvTimeout) / 2)),
+		pingInterval:   recvTimeout / 2,
 		connectTimeout: 1 * time.Second,
 		sendChan:       make(chan *request, sendChanSize),
 		requests:       make(map[int32]*request),
 		watchers:       make(map[watchPathType][]chan Event),
 		passwd:         emptyPassword,
-		timeout:        30000,
+		timeout:        int32(sessionTimeout.Nanoseconds() / 1e6),
 
 		// Debug
 		reconnectDelay: 0,
@@ -354,7 +365,9 @@ func (c *Conn) authenticate() error {
 
 	binary.BigEndian.PutUint32(buf[:4], uint32(n))
 
+	c.conn.SetWriteDeadline(time.Now().Add(c.recvTimeout * 10))
 	_, err = c.conn.Write(buf[:n+4])
+	c.conn.SetWriteDeadline(time.Time{})
 	if err != nil {
 		return err
 	}
@@ -364,7 +377,9 @@ func (c *Conn) authenticate() error {
 	// connect response
 
 	// package length
+	c.conn.SetReadDeadline(time.Now().Add(c.recvTimeout * 10))
 	_, err = io.ReadFull(c.conn, buf[:4])
+	c.conn.SetReadDeadline(time.Time{})
 	if err != nil {
 		return err
 	}
@@ -758,31 +773,40 @@ func (c *Conn) Sync(path string) (string, error) {
 	return res.Path, err
 }
 
-type MultiOps struct {
-	Create  []CreateRequest
-	Delete  []DeleteRequest
-	SetData []SetDataRequest
-	Check   []CheckVersionRequest
+type MultiResponse struct {
+	Stat   *Stat
+	String string
 }
 
-func (c *Conn) Multi(ops MultiOps) error {
+// Multi executes multiple ZooKeeper operations or none of them. The provided
+// ops must be one of *CreateRequest, *DeleteRequest, *SetDataRequest, or
+// *CheckVersionRequest.
+func (c *Conn) Multi(ops ...interface{}) ([]MultiResponse, error) {
 	req := &multiRequest{
-		Ops:        make([]multiRequestOp, 0, len(ops.Create)+len(ops.Delete)+len(ops.SetData)+len(ops.Check)),
+		Ops:        make([]multiRequestOp, 0, len(ops)),
 		DoneHeader: multiHeader{Type: -1, Done: true, Err: -1},
 	}
-	for _, r := range ops.Create {
-		req.Ops = append(req.Ops, multiRequestOp{multiHeader{opCreate, false, -1}, r})
-	}
-	for _, r := range ops.SetData {
-		req.Ops = append(req.Ops, multiRequestOp{multiHeader{opSetData, false, -1}, r})
-	}
-	for _, r := range ops.Delete {
-		req.Ops = append(req.Ops, multiRequestOp{multiHeader{opDelete, false, -1}, r})
-	}
-	for _, r := range ops.Check {
-		req.Ops = append(req.Ops, multiRequestOp{multiHeader{opCheck, false, -1}, r})
+	for _, op := range ops {
+		var opCode int32
+		switch op.(type) {
+		case *CreateRequest:
+			opCode = opCreate
+		case *SetDataRequest:
+			opCode = opSetData
+		case *DeleteRequest:
+			opCode = opDelete
+		case *CheckVersionRequest:
+			opCode = opCheck
+		default:
+			return nil, fmt.Errorf("uknown operation type %T", op)
+		}
+		req.Ops = append(req.Ops, multiRequestOp{multiHeader{opCode, false, -1}, op})
 	}
 	res := &multiResponse{}
 	_, err := c.request(opMulti, req, res, nil)
-	return err
+	mr := make([]MultiResponse, len(res.Ops))
+	for i, op := range res.Ops {
+		mr[i] = MultiResponse{Stat: op.Stat, String: op.String}
+	}
+	return mr, err
 }

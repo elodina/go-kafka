@@ -6,32 +6,39 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // BrokerConfig is used to pass multiple configuration options to Broker.Open.
 type BrokerConfig struct {
-	MaxOpenRequests int           // How many outstanding requests the broker is allowed to have before blocking attempts to send.
-	DialTimeout     time.Duration // How long to wait for the initial connection to succeed before timing out and returning an error.
-	ReadTimeout     time.Duration // How long to wait for a response before timing out and returning an error.
-	WriteTimeout    time.Duration // How long to wait for a transmit to succeed before timing out and returning an error.
+	MaxOpenRequests int // How many outstanding requests the broker is allowed to have before blocking attempts to send (default 5).
+
+	// All three of the below configurations are similar to the `socket.timeout.ms` setting in JVM kafka.
+	DialTimeout  time.Duration // How long to wait for the initial connection to succeed before timing out and returning an error (default 30s).
+	ReadTimeout  time.Duration // How long to wait for a response before timing out and returning an error (default 30s).
+	WriteTimeout time.Duration // How long to wait for a transmit to succeed before timing out and returning an error (default 30s).
 }
 
 // NewBrokerConfig returns a new broker configuration with sane defaults.
 func NewBrokerConfig() *BrokerConfig {
 	return &BrokerConfig{
-		MaxOpenRequests: 4,
-		DialTimeout:     1 * time.Minute,
-		ReadTimeout:     1 * time.Minute,
-		WriteTimeout:    1 * time.Minute,
+		MaxOpenRequests: 5,
+		DialTimeout:     30 * time.Second,
+		ReadTimeout:     30 * time.Second,
+		WriteTimeout:    30 * time.Second,
 	}
 }
 
 // Validate checks a BrokerConfig instance. This will return a
 // ConfigurationError if the specified values don't make sense.
 func (config *BrokerConfig) Validate() error {
-	if config.MaxOpenRequests < 0 {
+	if config.MaxOpenRequests <= 0 {
 		return ConfigurationError("Invalid MaxOpenRequests")
+	}
+
+	if config.DialTimeout <= 0 {
+		return ConfigurationError("Invalid DialTimeout")
 	}
 
 	if config.ReadTimeout <= 0 {
@@ -55,6 +62,7 @@ type Broker struct {
 	conn          net.Conn
 	connErr       error
 	lock          sync.Mutex
+	opened        int32
 
 	responses chan responsePromise
 	done      chan bool
@@ -72,11 +80,11 @@ func NewBroker(addr string) *Broker {
 	return &Broker{id: -1, addr: addr}
 }
 
-// Open tries to connect to the Broker. It takes the broker lock synchronously, then spawns a goroutine which
-// connects and releases the lock. This means any subsequent operations on the broker will block waiting for
-// the connection to finish. To get the effect of a fully synchronous Open call, follow it by a call to Connected().
-// The only errors Open will return directly are ConfigurationError or AlreadyConnected. If conf is nil, the result of
-// NewBrokerConfig() is used.
+// Open tries to connect to the Broker if it is not already connected or connecting, but does not block
+// waiting for the connection to complete. This means that any subsequent operations on the broker will
+// block waiting for the connection to succeed or fail. To get the effect of a fully synchronous Open call,
+// follow it by a call to Connected(). The only errors Open will return directly are ConfigurationError or
+// AlreadyConnected. If conf is nil, the result of NewBrokerConfig() is used.
 func (b *Broker) Open(conf *BrokerConfig) error {
 	if conf == nil {
 		conf = NewBrokerConfig()
@@ -87,13 +95,16 @@ func (b *Broker) Open(conf *BrokerConfig) error {
 		return err
 	}
 
+	if !atomic.CompareAndSwapInt32(&b.opened, 0, 1) {
+		return ErrAlreadyConnected
+	}
+
 	b.lock.Lock()
 
 	if b.conn != nil {
 		b.lock.Unlock()
-		Logger.Printf("Failed to connect to broker %s\n", b.addr)
-		Logger.Println(AlreadyConnected)
-		return AlreadyConnected
+		Logger.Printf("Failed to connect to broker %s: %s\n", b.addr, ErrAlreadyConnected)
+		return ErrAlreadyConnected
 	}
 
 	go withRecover(func() {
@@ -101,14 +112,15 @@ func (b *Broker) Open(conf *BrokerConfig) error {
 
 		b.conn, b.connErr = net.DialTimeout("tcp", b.addr, conf.DialTimeout)
 		if b.connErr != nil {
-			Logger.Printf("Failed to connect to broker %s\n", b.addr)
-			Logger.Println(b.connErr)
+			b.conn = nil
+			atomic.StoreInt32(&b.opened, 0)
+			Logger.Printf("Failed to connect to broker %s: %s\n", b.addr, b.connErr)
 			return
 		}
 
 		b.conf = conf
 		b.done = make(chan bool)
-		b.responses = make(chan responsePromise, b.conf.MaxOpenRequests)
+		b.responses = make(chan responsePromise, b.conf.MaxOpenRequests-1)
 
 		Logger.Printf("Connected to broker %s\n", b.addr)
 		go withRecover(b.responseReceiver)
@@ -133,13 +145,12 @@ func (b *Broker) Close() (err error) {
 		if err == nil {
 			Logger.Printf("Closed connection to broker %s\n", b.addr)
 		} else {
-			Logger.Printf("Failed to close connection to broker %s.\n", b.addr)
-			Logger.Println(err)
+			Logger.Printf("Failed to close connection to broker %s: %s\n", b.addr, err)
 		}
 	}()
 
 	if b.conn == nil {
-		return NotConnected
+		return ErrNotConnected
 	}
 
 	close(b.responses)
@@ -151,6 +162,8 @@ func (b *Broker) Close() (err error) {
 	b.connErr = nil
 	b.done = nil
 	b.responses = nil
+
+	atomic.StoreInt32(&b.opened, 0)
 
 	return
 }
@@ -263,7 +276,7 @@ func (b *Broker) send(clientID string, req requestEncoder, promiseResponse bool)
 		if b.connErr != nil {
 			return nil, b.connErr
 		}
-		return nil, NotConnected
+		return nil, ErrNotConnected
 	}
 
 	fullRequest := request{b.correlationID, clientID, req}
@@ -380,9 +393,7 @@ func (b *Broker) responseReceiver() {
 		if decodedHeader.correlationID != response.correlationID {
 			// TODO if decoded ID < cur ID, discard until we catch up
 			// TODO if decoded ID > cur ID, save it so when cur ID catches up we have a response
-			response.errors <- DecodingError{
-				Info: fmt.Sprintf("CorrelationID didn't match, wanted %d, got %d", response.correlationID, decodedHeader.correlationID),
-			}
+			response.errors <- PacketDecodingError{fmt.Sprintf("CorrelationID didn't match, wanted %d, got %d", response.correlationID, decodedHeader.correlationID)}
 			continue
 		}
 

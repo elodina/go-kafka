@@ -1,14 +1,14 @@
 package main
 
 import (
-	"testing"
 	"fmt"
-	"time"
-	"github.com/stealthly/go-kafka/producer"
 	"github.com/Shopify/sarama"
+	"github.com/stealthly/go-kafka/producer"
+	"github.com/stealthly/go_kafka_client"
 	"log"
 	"os"
-	"github.com/stealthly/go_kafka_client"
+	"testing"
+	"time"
 )
 
 var brokers = []string{"go-broker:9092"}
@@ -27,7 +27,7 @@ func sendAndConsumeRoutine(t *testing.T, quit chan int) {
 	kafkaProducer := producer.NewKafkaProducer(testTopic, brokers)
 	fmt.Printf("Sending message %s to topic %s\n", testMessage, testTopic)
 	err := kafkaProducer.SendStringSync(testMessage)
-	if (err != nil) {
+	if err != nil {
 		quit <- 1
 		t.Fatalf("Failed to produce message: %v", err)
 	}
@@ -36,7 +36,7 @@ func sendAndConsumeRoutine(t *testing.T, quit chan int) {
 	messageConsumed := false
 	kafkaConsumer := createConsumer(testGroupId, func(worker *go_kafka_client.Worker, msg *go_kafka_client.Message, taskId go_kafka_client.TaskId) go_kafka_client.WorkerResult {
 		message := string(msg.Value)
-		if (message != testMessage) {
+		if message != testMessage {
 			t.Errorf("Produced value %s and consumed value %s do not match.", testMessage, message)
 		} else {
 			fmt.Printf("Consumer %d successfully consumed a message %s\n", 1, message)
@@ -49,7 +49,7 @@ func sendAndConsumeRoutine(t *testing.T, quit chan int) {
 
 	fmt.Printf("Trying to consume the message with group %s\n", testGroupId)
 	go kafkaConsumer.StartStatic(map[string]int{
-		testTopic : 1,
+		testTopic: 1,
 	})
 
 	time.Sleep(timeout)
@@ -72,7 +72,7 @@ func sendAndConsumeGroupsRoutine(t *testing.T, quit chan int) {
 	kafkaProducer := producer.NewKafkaProducer(testTopic, brokers)
 	fmt.Printf("Sending message %s to topic %s\n", testMessage, testTopic)
 	err := kafkaProducer.SendStringSync(testMessage)
-	if (err != nil) {
+	if err != nil {
 		t.Fatalf("Failed to produce message: %v", err)
 		quit <- 1
 		quit <- 1
@@ -82,7 +82,7 @@ func sendAndConsumeGroupsRoutine(t *testing.T, quit chan int) {
 	readFunc := func(consumerId int) go_kafka_client.WorkerStrategy {
 		return func(worker *go_kafka_client.Worker, msg *go_kafka_client.Message, taskId go_kafka_client.TaskId) go_kafka_client.WorkerResult {
 			message := string(msg.Value)
-			if (message != testMessage) {
+			if message != testMessage {
 				t.Errorf("Produced value %s and consumed value %s do not match.", testMessage, message)
 			} else {
 				fmt.Printf("Consumer %d successfully consumed a message %s\n", consumerId, message)
@@ -97,19 +97,18 @@ func sendAndConsumeGroupsRoutine(t *testing.T, quit chan int) {
 	consumer1 := createConsumer(testGroupId, readFunc(1))
 	fmt.Printf("Trying to consume the message with Consumer 1 and group %s\n", testGroupId)
 	go consumer1.StartStatic(map[string]int{
-		testTopic : 1,
+		testTopic: 1,
 	})
 
 	consumer2 := createConsumer(testGroupId2, readFunc(2))
 	fmt.Printf("Trying to consume the message with Consumer 2 and group %s\n", testGroupId2)
 	go consumer2.StartStatic(map[string]int{
-		testTopic : 1,
+		testTopic: 1,
 	})
 	time.Sleep(timeout)
-	if (messageCount != 2) {
+	if messageCount != 2 {
 		t.Errorf("Failed to produce and consume a value within %s", timeout)
 	}
-
 
 	<-consumer1.Close()
 	<-consumer2.Close()
@@ -136,7 +135,7 @@ func consumerGroupsSinglePartitionRoutine(t *testing.T, quit chan int) {
 	consumer1 := createConsumer(consumerGroup1, func(worker *go_kafka_client.Worker, msg *go_kafka_client.Message, taskId go_kafka_client.TaskId) go_kafka_client.WorkerResult {
 		fmt.Printf("Consumed message %s\n", string(msg.Value))
 		messageCount1++
-		if (messageCount1 == 2) {
+		if messageCount1 == 2 {
 			waiter1 <- 1
 		}
 
@@ -144,7 +143,7 @@ func consumerGroupsSinglePartitionRoutine(t *testing.T, quit chan int) {
 	})
 	fmt.Printf("Trying to consume messages with Consumer 1 and group %s\n", consumerGroup1)
 	go consumer1.StartStatic(map[string]int{
-		topic : 1,
+		topic: 1,
 	})
 
 	//wait until the messages are consumed or time out after 10 seconds
@@ -166,7 +165,7 @@ func consumerGroupsSinglePartitionRoutine(t *testing.T, quit chan int) {
 	})
 	fmt.Printf("Trying to consume messages with Consumer 2 and group %s\n", consumerGroup1)
 	go consumer2.StartStatic(map[string]int{
-		topic : 1,
+		topic: 1,
 	})
 
 	fmt.Println("wait to make sure messages are not consumed again")
@@ -191,11 +190,11 @@ func consumerGroupsSinglePartitionRoutine(t *testing.T, quit chan int) {
 		return go_kafka_client.NewSuccessfulResult(taskId)
 	})
 	go consumer3.StartStatic(map[string]int{
-		topic : 1,
+		topic: 1,
 	})
 
 	<-time.After(timeout / 2)
-	if (messageCount2 != numMessages) {
+	if messageCount2 != numMessages {
 		t.Errorf("Invalid number of messages: expected %d, actual %d", numMessages, messageCount2)
 	} else {
 		fmt.Printf("Consumed %d messages\n", messageCount2)
@@ -232,11 +231,11 @@ func consumerGroupsMultiplePartitionsRoutine(t *testing.T, quit chan int) {
 		return go_kafka_client.NewSuccessfulResult(taskId)
 	})
 	go consumer1.StartStatic(map[string]int{
-		topic : 1,
+		topic: 1,
 	})
 
 	<-time.After(timeout / 2)
-	if (messageCount != totalMessages) {
+	if messageCount != totalMessages {
 		t.Errorf("Invalid number of messages: expected %d, actual %d", totalMessages, messageCount)
 	} else {
 		fmt.Printf("Consumed %d messages\n", messageCount)
@@ -281,7 +280,7 @@ func TestConsumerGroupsMultiplePartitions(t *testing.T) {
 func createConsumer(group string, workerStrategy go_kafka_client.WorkerStrategy) *go_kafka_client.Consumer {
 	//Coordinator settings
 	zookeeperConfig := go_kafka_client.NewZookeeperConfig()
-	zookeeperConfig.ZookeeperConnect = []string{ zookeeper }
+	zookeeperConfig.ZookeeperConnect = []string{zookeeper}
 
 	//Actual consumer settings
 	consumerConfig := go_kafka_client.DefaultConsumerConfig()
