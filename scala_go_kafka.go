@@ -109,7 +109,7 @@ func encode(obj *PingPong, schemaId []byte) []byte {
 	buffer.Write(schemaId)
 
 	enc := avro.NewBinaryEncoder(buffer)
-	writer := avro.NewGenericDatumWriter()
+	writer := avro.NewSpecificDatumWriter()
 	writer.SetSchema(schemaById(schemaId))
 
 	writer.Write(obj, enc)
@@ -158,7 +158,7 @@ func NewCamusData(data []byte) *CamusData {
 		schemaIdArray := make([]byte, 4)
 		dec.ReadFixed(schemaIdArray)
 		schema := schemaById(schemaIdArray)
-		datumReader := avro.NewGenericDatumReader()
+		datumReader := avro.NewSpecificDatumReader()
 		datumReader.SetSchema(schema)
 
 		return &CamusData{schemaIdArray, dec, datumReader}
