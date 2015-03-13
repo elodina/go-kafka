@@ -43,12 +43,12 @@
 		},
 		{
 			"ImportPath": "github.com/stealthly/go-avro",
-			"Rev": "15a0e16da3408c408d381173404e0e82d5b3740c"
+			"Rev": "4296894e0f2237d7c2cf14da686bc0cbf064ad8e"
 		},
 		{
 			"ImportPath": "github.com/stealthly/go_kafka_client",
-			"Comment": "v0.3.0.0-30-g3806fa0",
-			"Rev": "3806fa04604c83bdd4cc47d8990bcfacf02e674a"
+			"Comment": "v0.3.0.0-37-g0abb137",
+			"Rev": "0abb1372f48982e0a3178ec42c76633bb39723ca"
 		},
 		{
 			"ImportPath": "github.com/stealthly/siesta",

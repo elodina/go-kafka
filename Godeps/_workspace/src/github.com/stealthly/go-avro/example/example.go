@@ -244,10 +244,13 @@ var schema14 = `{
 }`
 
 func main() {
-    sch, err := avro.ParseSchema(schema14)
+    schemaString := schema12
+
+    sch, err := avro.ParseSchema(schemaString)
     if err != nil {
         fmt.Println("ERR:", err)
     }
     fmt.Println(sch)
 
+    fmt.Println(sch.String() == schemaString)
 }

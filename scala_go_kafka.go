@@ -69,6 +69,13 @@ func main() {
 		return go_kafka_client.NewSuccessfulResult(taskId)
 	}
 
+    consumerConfig.WorkerFailureCallback = func(_ *go_kafka_client.WorkerManager) go_kafka_client.FailedDecision {
+        return go_kafka_client.CommitOffsetAndContinue
+    }
+    consumerConfig.WorkerFailedAttemptCallback = func(_ *go_kafka_client.Task, _ go_kafka_client.WorkerResult) go_kafka_client.FailedDecision {
+        return go_kafka_client.CommitOffsetAndContinue
+    }
+
 	kafkaConsumer = go_kafka_client.NewConsumer(consumerConfig)
 
 	pingPongLoop(p)
