@@ -41,7 +41,8 @@ func main() {
 	consumerConfig.Groupid = group
 	consumerConfig.NumWorkers = 1
 	consumerConfig.NumConsumerFetchers = 1
-    consumerConfig.ValueDecoder = go_kafka_client.NewKafkaAvroDecoder(schemaRepo)
+    consumerConfig.KeyDecoder = go_kafka_client.NewKafkaAvroDecoder(schemaRepo)
+    consumerConfig.ValueDecoder = consumerConfig.KeyDecoder
 
 	consumerConfig.Strategy = func(worker *go_kafka_client.Worker, message *go_kafka_client.Message, taskId go_kafka_client.TaskId) go_kafka_client.WorkerResult {
 		time.Sleep(2 * time.Second)
