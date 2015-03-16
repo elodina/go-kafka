@@ -22,7 +22,6 @@ var schemaRepo = "http://localhost:8081"
 var kafkaProducer *producer.KafkaProducer = nil
 var kafkaConsumer *go_kafka_client.Consumer = nil
 
-var decoder = go_kafka_client.NewKafkaAvroDecoder(schemaRepo)
 var encoder = go_kafka_client.NewKafkaAvroEncoder(schemaRepo)
 
 func main() {
@@ -42,14 +41,11 @@ func main() {
 	consumerConfig.Groupid = group
 	consumerConfig.NumWorkers = 1
 	consumerConfig.NumConsumerFetchers = 1
+    consumerConfig.ValueDecoder = go_kafka_client.NewKafkaAvroDecoder(schemaRepo)
 
 	consumerConfig.Strategy = func(worker *go_kafka_client.Worker, message *go_kafka_client.Message, taskId go_kafka_client.TaskId) go_kafka_client.WorkerResult {
 		time.Sleep(2 * time.Second)
-		recInterface, err := decoder.Decode(message.Value)
-		if err != nil {
-			panic(err)
-		}
-		record, ok := recInterface.(*avro.GenericRecord)
+		record, ok := message.DecodedValue.(*avro.GenericRecord)
 		if !ok {
 			panic("Not a *GenericError, but expected one")
 		}
