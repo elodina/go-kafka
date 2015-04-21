@@ -28,6 +28,9 @@ bin/kafka-console-producer.sh --broker-list 192.168.86.10:9092 --topic *get this
 
 bin/kafka-console-consumer.sh --zookeeper 192.168.86.5:2181 --topic *get this from the random topic created in test* --from-beginning
 
+Scala Go ping-pong client
+==========================
+
 If there is an API break, `godep` provides facilities for building and running the provided dependency snapshot (`godep save`). To leverage this, simply prepend all go commands with `godep` to run them inside a sandbox. Example:
 ```bash
 # Run Go ping-pong client
