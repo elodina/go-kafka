@@ -4,7 +4,7 @@ import (
 	"code.google.com/p/go-uuid/uuid"
 	"fmt"
 	"github.com/stealthly/go-avro"
-	"github.com/stealthly/go-kafka/producer"
+	"github.com/ods94065/go-kafka/producer"
 	"github.com/stealthly/go_kafka_client"
 	"os"
 	"os/signal"

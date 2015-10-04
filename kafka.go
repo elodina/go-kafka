@@ -1,7 +1,7 @@
 package main
 
-//import ("github.com/stealthly/go-kafka/producer"
-//	"github.com/stealthly/go-kafka/consumer"
+//import ("github.com/ods94065/go-kafka/producer"
+//	"github.com/ods94065/go-kafka/consumer"
 //	"fmt"
 //	"time"
 //)
