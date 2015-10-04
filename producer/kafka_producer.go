@@ -2,7 +2,6 @@
 package producer
 
 import (
-	"code.google.com/p/go-uuid/uuid"
 	"github.com/Shopify/sarama"
 )
 
