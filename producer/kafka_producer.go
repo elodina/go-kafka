@@ -2,7 +2,6 @@
 package producer
 
 import (
-	"code.google.com/p/go-uuid/uuid"
 	"github.com/Shopify/sarama"
 )
 
@@ -17,22 +16,22 @@ type KafkaProducer struct {
 	   The socket connections for sending the actual data will be established based on the broker information returned in
 	   the metadata. */
 	BrokerList []string
-	client     *sarama.Client
-	producer   *sarama.Producer
+	client     sarama.Client
+	producer   sarama.SyncProducer
 }
 
 // NewKafkaProducer creates a new produce. It will publish messages to the given topic.
 // You may also provide a sarama.ProducerConfig with more precise configurations or nil to use default configuration
 func NewKafkaProducer(topic string, brokerList []string) *KafkaProducer {
-	client, err := sarama.NewClient(uuid.New(), brokerList, sarama.NewClientConfig())
+	config := sarama.NewConfig()
+	config.Producer.Flush.Messages = 1
+
+	client, err := sarama.NewClient(brokerList, config)
 	if err != nil {
 		panic(err)
 	}
 
-	config := sarama.NewProducerConfig()
-	config.FlushMsgCount = 1
-	config.AckSuccesses = true
-	producer, err := sarama.NewProducer(client, config)
+	producer, err := sarama.NewSyncProducer(brokerList, config)
 	if err != nil {
 		panic(err)
 	}
@@ -50,13 +49,8 @@ func (kafkaProducer *KafkaProducer) SendBytesSync(message []byte) error {
 
 func (kafkaProducer *KafkaProducer) sendSync(encoder sarama.Encoder) error {
 	message := &sarama.ProducerMessage{Topic: kafkaProducer.Topic, Key: nil, Value: encoder}
-	kafkaProducer.producer.Input() <- message
-	select {
-	case error := <-kafkaProducer.producer.Errors():
-		return error.Err
-	case <-kafkaProducer.producer.Successes():
-		return nil
-	}
+        _, _, err := kafkaProducer.producer.SendMessage(message)
+        return err
 }
 
 // Close indicates that no more messages will be produced with this producer and closes all underlying connections. It is required to call this function before
